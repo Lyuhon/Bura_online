@@ -23,6 +23,7 @@ const tokenToRoom = {}; // playerToken -> room code
 
 const CLEANUP_DELAY_MS = 10 * 60 * 1000; // комната живёт 10 минут после того, как все отключились
 const TRICK_PAUSE_MS = 1400; // пауза перед добором карт, чтобы было видно кто что скинул и кто забрал
+const ROUND_END_PAUSE_MS = 1800; // доп. пауза перед показом итогов раздачи
 
 function genCode() {
   let code;
@@ -158,7 +159,7 @@ io.on('connection', (socket) => {
     const room = rooms[socket.data.roomCode];
     if (!room) return;
     if (!isValidSubmission(room, socket.id, cards)) {
-      socket.emit('error_msg', 'Недопустимый ход: карты должны быть одной масти и быть у тебя в руке');
+      socket.emit('error_msg', 'Недопустимый ход: если открываешь взятку — все карты одной масти; если отвечаешь — нужно ровно столько карт, сколько кинул лидер (или все, что остались)');
       return;
     }
     const result = playCards(room, socket.id, cards);
@@ -171,10 +172,16 @@ io.on('connection', (socket) => {
         winnerId: result.winnerId,
         winnerName: result.winnerName,
         trickPoints: result.trickPoints,
+        columns: result.columns,
       });
       setTimeout(() => {
         finalizeTrick(room, result.winnerId);
-        broadcastRoom(room);
+        if (room.phase === 'round_end') {
+          // Даём время доиграть анимацию последней взятки перед экраном итогов раздачи
+          setTimeout(() => broadcastRoom(room), ROUND_END_PAUSE_MS);
+        } else {
+          broadcastRoom(room);
+        }
       }, TRICK_PAUSE_MS);
     } else {
       broadcastRoom(room);

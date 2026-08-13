@@ -38,7 +38,8 @@ function cardEl(card, opts = {}) {
     + (RED_SUITS.includes(card.suit) ? ' red' : '')
     + (opts.small ? ' small' : '')
     + (opts.disabled ? ' disabled' : '')
-    + (opts.selected ? ' selected' : '');
+    + (opts.selected ? ' selected' : '')
+    + (opts.winnerCard ? ' winner-card' : '');
   div.innerHTML = `<div>${card.rank}</div><div class="suit">${card.suit}</div>`;
   if (opts.onClick) div.addEventListener('click', opts.onClick);
   return div;
@@ -179,11 +180,18 @@ function onRoomUpdate(state) {
   }
 }
 
-// Показывает завершённую взятку целиком (все карты всех игроков) на секунду-полторы,
-// с подсветкой того, кто её забрал - до того как сервер добёрет карты и очистит стол
-function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
+// Показывает завершённую взятку целиком, подсвечивает победившие карты в каждой колонке,
+// затем "разлетает" все карты к тому, кто забрал взятку - и только потом сервер чистит стол
+function onTrickResult({ trick, winnerId, winnerName, trickPoints, columns }) {
   const trickArea = document.getElementById('trick-area');
   trickArea.innerHTML = '';
+
+  const winningCardKeys = new Set();
+  (columns || []).forEach((col) => {
+    const winEntry = col.entries.find((e) => e.playerId === col.winnerId);
+    if (winEntry) winningCardKeys.add(`${col.winnerId}:${col.index}`);
+  });
+
   trick.forEach((entry) => {
     const p = lastState ? lastState.players.find((pl) => pl.id === entry.playerId) : null;
     const wrap = document.createElement('div');
@@ -194,7 +202,10 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
     wrap.appendChild(label);
     const cardsWrap = document.createElement('div');
     cardsWrap.className = 'trick-group-cards';
-    entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c)));
+    entry.cards.forEach((c, i) => {
+      const isColWinner = winningCardKeys.has(`${entry.playerId}:${i}`);
+      cardsWrap.appendChild(cardEl(c, { winnerCard: isColWinner }));
+    });
     wrap.appendChild(cardsWrap);
     trickArea.appendChild(wrap);
   });
@@ -203,7 +214,33 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
   banner.textContent = `🏆 ${winnerName} забирает взятку (+${trickPoints} очк.)`;
   banner.classList.add('show');
   clearTimeout(trickBannerTimer);
-  trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 1500);
+  trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 1700);
+
+  // Находим точку назначения (аватар победителя) и разлетаем карты к ней
+  requestAnimationFrame(() => {
+    let targetEl = null;
+    if (winnerId === myId) {
+      targetEl = document.getElementById('my-hand');
+    } else {
+      targetEl = Array.from(document.querySelectorAll('.opponent'))
+        .find((el) => el.querySelector('.name') && el.querySelector('.name').textContent.startsWith(winnerName));
+    }
+    if (!targetEl) return;
+    const targetRect = targetEl.getBoundingClientRect();
+    const targetX = targetRect.left + targetRect.width / 2;
+    const targetY = targetRect.top + targetRect.height / 2;
+
+    setTimeout(() => {
+      document.querySelectorAll('#trick-area .card').forEach((cardNode) => {
+        const r = cardNode.getBoundingClientRect();
+        const dx = targetX - (r.left + r.width / 2);
+        const dy = targetY - (r.top + r.height / 2);
+        cardNode.classList.add('flying');
+        cardNode.style.setProperty('--fly-x', `${dx}px`);
+        cardNode.style.setProperty('--fly-y', `${dy}px`);
+      });
+    }, 500); // сперва даём разглядеть, кто кого побил, потом улетает
+  });
 }
 
 function renderLobby(state) {
@@ -313,6 +350,8 @@ function renderGame(state) {
   const hint = document.getElementById('multi-hint');
 
   if (me && me.hand) {
+    const amLeader = state.trick.length === 0;
+    const required = amLeader ? null : state.requiredCount;
     me.hand.forEach((card) => {
       const id = cardId(card);
       hand.appendChild(cardEl(card, {
@@ -322,25 +361,32 @@ function renderGame(state) {
           if (!myTurn) return;
           if (selectedCardIds.has(id)) {
             selectedCardIds.delete(id);
-          } else if (selectedCardIds.size === 0) {
-            selectedCardIds.add(id);
-          } else {
-            // если масть не совпадает с уже выбранными - начинаем новый выбор с этой карты
-            const firstSelected = me.hand.find((c) => selectedCardIds.has(cardId(c)));
-            if (firstSelected && firstSelected.suit !== card.suit) {
-              selectedCardIds.clear();
+          } else if (amLeader) {
+            if (selectedCardIds.size === 0) {
+              selectedCardIds.add(id);
+            } else {
+              const firstSelected = me.hand.find((c) => selectedCardIds.has(cardId(c)));
+              if (firstSelected && firstSelected.suit !== card.suit) selectedCardIds.clear();
+              selectedCardIds.add(id);
             }
-            selectedCardIds.add(id);
+          } else {
+            // отвечающий: масти любые, но не больше требуемого количества
+            if (selectedCardIds.size < required) selectedCardIds.add(id);
           }
           renderGame(state);
         },
       }));
     });
-  }
 
-  endBtn.classList.toggle('hidden', !myTurn);
-  endBtn.disabled = selectedCardIds.size === 0;
-  hint.classList.toggle('hidden', !myTurn);
+    endBtn.classList.toggle('hidden', !myTurn);
+    endBtn.disabled = amLeader ? selectedCardIds.size === 0 : selectedCardIds.size !== required;
+    hint.classList.toggle('hidden', !myTurn);
+    if (myTurn) {
+      hint.textContent = amLeader
+        ? 'Можно выбрать несколько карт одной масти'
+        : `Нужно ответить ровно ${required} карт${required === 1 ? 'ой' : 'ами'} (любых мастей)`;
+    }
+  }
 }
 
 function renderRoundEnd(state) {
@@ -352,9 +398,11 @@ function renderRoundEnd(state) {
   state.players
     .slice()
     .sort((a, b) => b.roundsWon - a.roundsWon)
-    .forEach((p) => {
+    .forEach((p, i) => {
       const div = document.createElement('div');
       div.textContent = `${p.name} — раздач выиграно: ${p.roundsWon}`;
+      div.className = 'score-row-enter';
+      div.style.animationDelay = `${i * 0.15}s`;
       scores.appendChild(div);
     });
 

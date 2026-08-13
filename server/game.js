@@ -37,10 +37,10 @@ function cardId(c) {
   return c.rank + c.suit;
 }
 
-function newPlayer(id, token, name) {
+function newPlayer(id, token, name, isBot = false) {
   return {
     id, token, name, hand: [], score: 0, roundsWon: 0,
-    penalty: 0, penaltyDelta: 0, connected: true,
+    penalty: 0, penaltyDelta: 0, connected: true, isBot,
   };
 }
 
@@ -66,6 +66,15 @@ function createRoom(code, hostId, hostToken, hostName) {
 function addPlayer(room, id, token, name) {
   if (room.players.length >= 4) return false;
   room.players.push(newPlayer(id, token, name));
+  return true;
+}
+
+function addBot(room) {
+  if (room.players.length >= 4) return false;
+  const botNum = room.players.filter((p) => p.isBot).length + 1;
+  const id = `bot-${Math.random().toString(36).slice(2)}`;
+  const token = `bot-token-${Math.random().toString(36).slice(2)}`;
+  room.players.push(newPlayer(id, token, `Бот ${botNum}`, true));
   return true;
 }
 
@@ -115,6 +124,83 @@ function requiredCountFor(room, player) {
   if (room.trick.length === 0) return null;
   const leaderCount = room.trick[0].cards.length;
   return Math.min(leaderCount, player.hand.length);
+}
+
+// Сила карты для сравнения (используется и разрешением взятки, и ботами):
+// козырь всегда выше любой некозырной карты; в масти хода старшая карта бьёт младшую;
+// карта не в масти хода и не козырь никогда не выигрывает.
+function cardStrength(card, leadSuit, trumpSuit) {
+  if (card.suit === trumpSuit) return 1000 + rankIndex(card.rank);
+  if (card.suit === leadSuit) return rankIndex(card.rank);
+  return -1;
+}
+
+// Текущая "лучшая" карта во взятке ДО того как она укомплектована - нужно ботам,
+// чтобы решить, можно ли и стоит ли пытаться перебить текущего лидера.
+function currentBestCard(room) {
+  if (room.trick.length === 0) return null;
+  const leadSuit = room.trick[0].cards[0].suit;
+  let winningCard = null;
+  for (const entry of room.trick) {
+    for (const c of entry.cards) {
+      if (!winningCard) { winningCard = c; continue; }
+      const cIsTrump = c.suit === room.trumpSuit;
+      const wIsTrump = winningCard.suit === room.trumpSuit;
+      if (cIsTrump && !wIsTrump) winningCard = c;
+      else if (cIsTrump && wIsTrump) { if (rankIndex(c.rank) > rankIndex(winningCard.rank)) winningCard = c; }
+      else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit === leadSuit) { if (rankIndex(c.rank) > rankIndex(winningCard.rank)) winningCard = c; }
+      else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit !== leadSuit) winningCard = c;
+    }
+  }
+  return winningCard;
+}
+
+// Простая эвристика для бота: если открывает - сливает мусор (масть с наименьшей
+// суммой очков, не козырную по возможности); если отвечает - пытается перебить
+// текущего лидера самой ДЕШЁВОЙ подходящей картой (бережёт козыри, если ходит не
+// последним в этой взятке), а остальные обязательные карты добирает из мусора.
+function chooseBotMove(room, player) {
+  const isLeader = room.trick.length === 0;
+
+  if (isLeader) {
+    const groups = {};
+    for (const c of player.hand) (groups[c.suit] = groups[c.suit] || []).push(c);
+    let entries = Object.entries(groups);
+    const nonTrump = entries.filter(([s]) => s !== room.trumpSuit);
+    const pool = nonTrump.length ? nonTrump : entries;
+    pool.sort((a, b) => {
+      const pa = a[1].reduce((s, c) => s + POINTS[c.rank], 0);
+      const pb = b[1].reduce((s, c) => s + POINTS[c.rank], 0);
+      if (pa !== pb) return pa - pb;
+      return b[1].length - a[1].length;
+    });
+    return pool[0][1].slice();
+  }
+
+  const required = requiredCountFor(room, player);
+  const leadSuit = room.trick[0].cards[0].suit;
+  const best = currentBestCard(room);
+  const bestStrength = cardStrength(best, leadSuit, room.trumpSuit);
+  const isLast = room.trick.length === room.players.length - 1;
+
+  const byPoints = [...player.hand].sort((a, b) => POINTS[a.rank] - POINTS[b.rank]);
+  const winners = player.hand
+    .filter((c) => cardStrength(c, leadSuit, room.trumpSuit) > bestStrength)
+    .sort((a, b) => cardStrength(a, leadSuit, room.trumpSuit) - cardStrength(b, leadSuit, room.trumpSuit));
+
+  let winCard = null;
+  if (isLast && winners.length) {
+    winCard = winners[0];
+  } else if (!isLast && winners.length) {
+    const nonTrumpWinners = winners.filter((c) => c.suit !== room.trumpSuit);
+    winCard = nonTrumpWinners.length ? nonTrumpWinners[0] : null;
+  }
+
+  if (winCard) {
+    const rest = byPoints.filter((c) => cardId(c) !== cardId(winCard)).slice(0, required - 1);
+    return [winCard, ...rest];
+  }
+  return byPoints.slice(0, required);
 }
 
 function isValidSubmission(room, playerId, cards) {
@@ -284,6 +370,7 @@ function publicStateFor(room, forPlayerId) {
       penalty: p.penalty,
       penaltyDelta: p.penaltyDelta,
       connected: p.connected,
+      isBot: p.isBot || false,
       handCount: p.hand.length,
       hand: p.id === forPlayerId ? p.hand : undefined,
     })),
@@ -292,6 +379,6 @@ function publicStateFor(room, forPlayerId) {
 
 module.exports = {
   SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE, ELIMINATION_LIMIT,
-  createRoom, addPlayer, findPlayerByToken, kickPlayer, renamePlayer, startRound,
-  isValidSubmission, playCards, finalizeTrick, publicStateFor, cardId,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, startRound,
+  isValidSubmission, playCards, finalizeTrick, chooseBotMove, publicStateFor, cardId,
 };

@@ -145,6 +145,7 @@ document.getElementById('btn-join').addEventListener('click', () => {
 });
 
 document.getElementById('btn-start').addEventListener('click', () => socket.emit('start_game'));
+document.getElementById('btn-add-bot').addEventListener('click', () => socket.emit('add_bot'));
 document.getElementById('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
 
 document.getElementById('btn-end-turn').addEventListener('click', () => {
@@ -241,7 +242,7 @@ function renderLobby(state) {
   state.players.forEach((p) => {
     const li = document.createElement('li');
     const nameSpan = document.createElement('span');
-    nameSpan.textContent = `${p.name}${p.id === myId ? ' (ты)' : ''}${p.connected ? '' : ' 💤'}`;
+    nameSpan.textContent = `${p.isBot ? '🤖 ' : ''}${p.name}${p.id === myId ? ' (ты)' : ''}${!p.isBot && !p.connected ? ' 💤' : ''}`;
     li.appendChild(nameSpan);
 
     if (p.id === state.hostId) {
@@ -275,6 +276,9 @@ function renderLobby(state) {
   const btn = document.getElementById('btn-start');
   btn.classList.toggle('hidden', !isHost);
   btn.disabled = state.players.length < 3;
+
+  const addBotBtn = document.getElementById('btn-add-bot');
+  addBotBtn.classList.toggle('hidden', !isHost || state.players.length >= 4);
 }
 
 // Обновляет ТОЛЬКО состояние выделения/номерков на уже существующих карточных
@@ -361,7 +365,7 @@ function renderGame(state) {
   state.players.filter((p) => p.id !== myId).forEach((p) => {
     const div = document.createElement('div');
     div.className = 'opponent' + (p.id === state.turnPlayerId ? ' active' : '');
-    div.innerHTML = `<div class="name">${p.name}${p.connected ? '' : ' 💤'}</div>
+    div.innerHTML = `<div class="name">${p.isBot ? '🤖 ' : ''}${p.name}${!p.isBot && !p.connected ? ' 💤' : ''}</div>
       <div class="meta">Очки: ${p.score} · побед: ${p.roundsWon}</div>
       <div class="penalty-bar">Вылет: ${p.penalty}/${state.eliminationLimit}</div>
       <div class="mini-cards">${'🂠'.repeat(p.handCount)}</div>`;

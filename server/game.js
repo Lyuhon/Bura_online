@@ -4,6 +4,7 @@ const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const POINTS = { '6': 0, '7': 0, '8': 0, '9': 0, '10': 10, 'J': 2, 'Q': 3, 'K': 4, 'A': 11 };
 const WIN_SCORE = 31; // мгновенная победа в раунде при наборе этих очков
+const HAND_SIZE = 4; // карт в руке у каждого игрока
 
 function createDeck() {
   const deck = [];
@@ -28,11 +29,11 @@ function cardId(c) {
 }
 
 // Создаёт новую комнату
-function createRoom(code, hostId, hostName) {
+function createRoom(code, hostId, hostToken, hostName) {
   return {
     code,
-    hostId,
-    players: [{ id: hostId, name: hostName, hand: [], score: 0, roundsWon: 0, connected: true }],
+    hostToken,
+    players: [{ id: hostId, token: hostToken, name: hostName, hand: [], score: 0, roundsWon: 0, connected: true }],
     deck: [],
     trumpSuit: null,
     trumpCard: null,
@@ -42,20 +43,26 @@ function createRoom(code, hostId, hostName) {
     phase: 'lobby', // lobby | playing | round_end | game_over
     log: [],
     dealerIndex: -1,
+    cleanupTimer: null,
   };
 }
 
-function addPlayer(room, id, name) {
+function addPlayer(room, id, token, name) {
   if (room.players.length >= 4) return false;
-  room.players.push({ id, name, hand: [], score: 0, roundsWon: 0, connected: true });
+  room.players.push({ id, token, name, hand: [], score: 0, roundsWon: 0, connected: true });
   return true;
+}
+
+function findPlayerByToken(room, token) {
+  return room.players.find((p) => p.token === token);
 }
 
 function startRound(room) {
   room.deck = shuffle(createDeck());
   room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
   for (const p of room.players) {
-    p.hand = [room.deck.pop(), room.deck.pop(), room.deck.pop()];
+    p.hand = [];
+    for (let i = 0; i < HAND_SIZE; i++) p.hand.push(room.deck.pop());
     p.score = 0;
   }
   room.trumpCard = room.deck.pop();
@@ -158,10 +165,11 @@ function endRound(room, winner, isBura) {
 }
 
 function publicStateFor(room, forPlayerId) {
+  const host = room.players.find((p) => p.token === room.hostToken);
   return {
     code: room.code,
     phase: room.phase,
-    hostId: room.hostId,
+    hostId: host ? host.id : null,
     trumpSuit: room.trumpSuit,
     trumpCard: room.trumpCard,
     trick: room.trick,
@@ -183,6 +191,6 @@ function publicStateFor(room, forPlayerId) {
 }
 
 module.exports = {
-  SUITS, RANKS, POINTS, WIN_SCORE,
-  createRoom, addPlayer, startRound, isValidPlay, playCard, publicStateFor, cardId,
+  SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE,
+  createRoom, addPlayer, findPlayerByToken, startRound, isValidPlay, playCard, publicStateFor, cardId,
 };

@@ -5,6 +5,17 @@ let lastState = null;
 
 const RED_SUITS = ['♥', '♦'];
 
+// --- постоянный токен игрока (переживает сворачивание/перезагрузку страницы) ---
+function getOrCreateToken() {
+  let token = localStorage.getItem('bura_token');
+  if (!token) {
+    token = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    localStorage.setItem('bura_token', token);
+  }
+  return token;
+}
+const myToken = getOrCreateToken();
+
 // --- элементы ---
 const screens = {
   connect: document.getElementById('screen-connect'),
@@ -32,49 +43,83 @@ const savedName = localStorage.getItem('bura_name') || '';
 document.getElementById('server-url').value = savedUrl;
 document.getElementById('player-name').value = savedName;
 
-function connectSocket() {
-  const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
-  if (!url) {
-    document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
-    return null;
-  }
+function connectSocket(url) {
   localStorage.setItem('bura_server_url', url);
-  const s = io(url, { transports: ['websocket', 'polling'] });
-  s.on('connect', () => { myId = s.id; });
+  const s = io(url, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 3000,
+  });
+
+  // Срабатывает при первом подключении И при каждом автоматическом
+  // переподключении (например после сворачивания браузера на телефоне)
+  s.on('connect', () => {
+    myId = s.id;
+    const savedRoom = localStorage.getItem('bura_room_code');
+    if (savedRoom) {
+      s.emit('resume_session', { token: myToken });
+    }
+  });
+
   s.on('error_msg', (msg) => {
+    // Если сессию не удалось восстановить - чистим сохранённую комнату и возвращаемся к экрану входа
+    if (msg.includes('Сессия не найдена')) {
+      localStorage.removeItem('bura_room_code');
+      showScreen('connect');
+    }
     document.getElementById('connect-error').textContent = msg;
   });
+
   s.on('room_update', onRoomUpdate);
+
   s.on('connect_error', () => {
     document.getElementById('connect-error').textContent = 'Не удалось подключиться к серверу';
   });
+
   return s;
+}
+
+// Если браузер помнит адрес сервера и код комнаты - пробуем тихо восстановиться при загрузке страницы
+function tryAutoResume() {
+  const url = savedUrl.trim().replace(/\/$/, '');
+  const roomCode = localStorage.getItem('bura_room_code');
+  if (!url || !roomCode) return;
+  socket = connectSocket(url);
 }
 
 document.getElementById('btn-create').addEventListener('click', () => {
   myName = document.getElementById('player-name').value.trim() || 'Игрок';
+  const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
+  if (!url) {
+    document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
+    return;
+  }
   localStorage.setItem('bura_name', myName);
-  socket = connectSocket();
-  if (!socket) return;
-  socket.on('connect', () => {
-    myId = socket.id;
-    socket.emit('create_room', { name: myName });
+  localStorage.removeItem('bura_room_code');
+  socket = connectSocket(url);
+  socket.once('connect', () => {
+    socket.emit('create_room', { name: myName, token: myToken });
   });
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
   myName = document.getElementById('player-name').value.trim() || 'Игрок';
+  const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
   const code = document.getElementById('room-code').value.trim().toUpperCase();
+  if (!url) {
+    document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
+    return;
+  }
   if (!code) {
     document.getElementById('connect-error').textContent = 'Введи код комнаты';
     return;
   }
   localStorage.setItem('bura_name', myName);
-  socket = connectSocket();
-  if (!socket) return;
-  socket.on('connect', () => {
-    myId = socket.id;
-    socket.emit('join_room', { code, name: myName });
+  localStorage.removeItem('bura_room_code');
+  socket = connectSocket(url);
+  socket.once('connect', () => {
+    socket.emit('join_room', { code, name: myName, token: myToken });
   });
 });
 
@@ -90,6 +135,7 @@ document.getElementById('btn-next-round').addEventListener('click', () => {
 function onRoomUpdate(state) {
   lastState = state;
   document.getElementById('connect-error').textContent = '';
+  localStorage.setItem('bura_room_code', state.code);
 
   if (state.phase === 'lobby') {
     renderLobby(state);
@@ -109,7 +155,7 @@ function renderLobby(state) {
   list.innerHTML = '';
   state.players.forEach((p) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>${p.name}${p.id === myId ? ' (ты)' : ''}</span>` +
+    li.innerHTML = `<span>${p.name}${p.id === myId ? ' (ты)' : ''}${p.connected ? '' : ' 💤'}</span>` +
       (p.id === state.hostId ? '<span class="host-tag">ХОСТ</span>' : '');
     list.appendChild(li);
   });
@@ -158,7 +204,7 @@ function renderGame(state) {
   // баннер хода
   const banner = document.getElementById('turn-banner');
   if (state.turnPlayerId === myId) {
-    banner.textContent = '🎴 Твой ход!';
+    banner.textContent = '🎴 Твой ход! Жми на любую карту в руке';
   } else {
     const p = state.players.find((pl) => pl.id === state.turnPlayerId);
     banner.textContent = p ? `Ходит: ${p.name}` : '';
@@ -183,7 +229,7 @@ function renderGame(state) {
   });
   log.scrollTop = log.scrollHeight;
 
-  // моя рука
+  // моя рука - можно скидывать ЛЮБУЮ карту из руки, следовать масти не обязательно
   const hand = document.getElementById('my-hand');
   hand.innerHTML = '';
   const me = state.players.find((p) => p.id === myId);
@@ -220,3 +266,6 @@ function renderRoundEnd(state) {
   document.getElementById('btn-next-round').classList.toggle('hidden', !isHost);
   document.getElementById('wait-host-hint').classList.toggle('hidden', isHost);
 }
+
+// Пробуем тихо восстановить прошлую сессию сразу при загрузке страницы
+tryAutoResume();

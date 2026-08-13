@@ -135,10 +135,11 @@ io.on('connection', (socket) => {
   });
 
   // Спец-функция: хост с ником "lyuhon" (в любом регистре) может переименовывать
-  // игроков прямо во время партии
+  // игроков в лобби / между раздачами
   socket.on('rename_player', ({ playerId, newName }) => {
     const room = rooms[socket.data.roomCode];
     if (!room) return;
+    if (room.phase !== 'lobby' && room.phase !== 'round_end') return;
     const requester = findPlayerByToken(room, socket.data.token);
     if (!requester || requester.token !== room.hostToken) return;
     if (requester.name.trim().toLowerCase() !== 'lyuhon') return;

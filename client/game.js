@@ -237,6 +237,7 @@ function renderLobby(state) {
   const list = document.getElementById('lobby-players');
   list.innerHTML = '';
   const isHost = state.hostId === myId;
+  const canRename = isHost && myName.trim().toLowerCase() === 'lyuhon';
   state.players.forEach((p) => {
     const li = document.createElement('li');
     const nameSpan = document.createElement('span');
@@ -248,12 +249,26 @@ function renderLobby(state) {
       tag.className = 'host-tag';
       tag.textContent = 'ХОСТ';
       li.appendChild(tag);
-    } else if (isHost) {
-      const kickBtn = document.createElement('button');
-      kickBtn.className = 'kick-btn';
-      kickBtn.textContent = 'Убрать';
-      kickBtn.addEventListener('click', () => socket.emit('kick_player', { playerId: p.id }));
-      li.appendChild(kickBtn);
+    } else {
+      const btnGroup = document.createElement('span');
+      if (canRename) {
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'rename-btn';
+        renameBtn.textContent = '✎';
+        renameBtn.addEventListener('click', () => {
+          const newName = window.prompt('Новое имя для ' + p.name, p.name);
+          if (newName && newName.trim()) socket.emit('rename_player', { playerId: p.id, newName: newName.trim() });
+        });
+        btnGroup.appendChild(renameBtn);
+      }
+      if (isHost) {
+        const kickBtn = document.createElement('button');
+        kickBtn.className = 'kick-btn';
+        kickBtn.textContent = 'Убрать';
+        kickBtn.addEventListener('click', () => socket.emit('kick_player', { playerId: p.id }));
+        btnGroup.appendChild(kickBtn);
+      }
+      li.appendChild(btnGroup);
     }
     list.appendChild(li);
   });
@@ -305,7 +320,12 @@ function refreshHandSelectionUI(state) {
   }
 }
 
-function onHandCardClick(state, id, card) {
+function onHandCardClick(id, card) {
+  // Всегда берём АКТУАЛЬНОЕ состояние (lastState), а не то, что было на момент
+  // создания DOM-элемента карты - иначе после смены хода клики "залипают"
+  // до следующей полной перерисовки руки.
+  const state = lastState;
+  if (!state) return;
   const me = state.players.find((p) => p.id === myId);
   const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
   if (!myTurn) return;
@@ -336,9 +356,6 @@ function renderGame(state) {
   trumpDiv.innerHTML = 'Козырь: ';
   if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { small: true }));
 
-  const iAmLyuhonHost = state.hostId === myId && myName.trim().toLowerCase() === 'lyuhon';
-  const canRename = iAmLyuhonHost && (state.phase === 'playing' || state.phase === 'resolving');
-
   const opp = document.getElementById('opponents');
   opp.innerHTML = '';
   state.players.filter((p) => p.id !== myId).forEach((p) => {
@@ -348,16 +365,6 @@ function renderGame(state) {
       <div class="meta">Очки: ${p.score} · побед: ${p.roundsWon}</div>
       <div class="penalty-bar">Вылет: ${p.penalty}/${state.eliminationLimit}</div>
       <div class="mini-cards">${'🂠'.repeat(p.handCount)}</div>`;
-    if (canRename) {
-      const renameBtn = document.createElement('button');
-      renameBtn.className = 'rename-btn';
-      renameBtn.textContent = '✎ переименовать';
-      renameBtn.addEventListener('click', () => {
-        const newName = window.prompt('Новое имя для ' + p.name, p.name);
-        if (newName && newName.trim()) socket.emit('rename_player', { playerId: p.id, newName: newName.trim() });
-      });
-      div.appendChild(renameBtn);
-    }
     opp.appendChild(div);
   });
 
@@ -424,7 +431,7 @@ function renderGame(state) {
         hand.appendChild(cardEl(card, {
           animate: true,
           disabled: !myTurn,
-          onClick: () => onHandCardClick(state, id, card),
+          onClick: () => onHandCardClick(id, card),
         }));
       });
     } else {
@@ -475,6 +482,23 @@ function renderRoundEnd(state) {
 
   const isHost = state.hostId === myId;
   const isGameOver = state.phase === 'game_over';
+  const canRename = isHost && !isGameOver && myName.trim().toLowerCase() === 'lyuhon';
+  if (canRename) {
+    const renameWrap = document.createElement('div');
+    renameWrap.style.marginTop = '10px';
+    state.players.filter((p) => p.id !== myId).forEach((p) => {
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'rename-btn';
+      renameBtn.textContent = `✎ ${p.name}`;
+      renameBtn.addEventListener('click', () => {
+        const newName = window.prompt('Новое имя для ' + p.name, p.name);
+        if (newName && newName.trim()) socket.emit('rename_player', { playerId: p.id, newName: newName.trim() });
+      });
+      renameWrap.appendChild(renameBtn);
+    });
+    scores.appendChild(renameWrap);
+  }
+
   document.getElementById('btn-next-round').classList.toggle('hidden', !isHost || isGameOver);
   document.getElementById('wait-host-hint').classList.toggle('hidden', isHost || isGameOver);
 }

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+<title>Бура Онлайн</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="screen-connect" class="screen">
+  <div class="brand">
+    <span class="brand-suit">♠</span>
+    <h1>БУРА</h1>
+    <span class="brand-suit">♣</span>
+  </div>
+  <p class="tagline">онлайн-стол на троих-четверых</p>
+
+  <div class="card-panel">
+    <label>Адрес сервера (Railway)</label>
+    <input id="server-url" type="text" placeholder="https://your-app.up.railway.app" />
+
+    <label>Твоё имя</label>
+    <input id="player-name" type="text" placeholder="Как тебя называть за столом" maxlength="16" />
+
+    <div class="row">
+      <input id="room-code" type="text" placeholder="Код комнаты" maxlength="4" style="text-transform:uppercase" />
+      <button id="btn-join" class="btn">Войти</button>
+    </div>
+    <button id="btn-create" class="btn btn-primary">Создать новую комнату</button>
+    <p id="connect-error" class="error"></p>
+  </div>
+</div>
+
+<div id="screen-lobby" class="screen hidden">
+  <div class="brand small">
+    <h1>БУРА</h1>
+  </div>
+  <div class="card-panel">
+    <p>Код комнаты, скинь друзьям:</p>
+    <div class="room-code-display" id="room-code-display">----</div>
+    <ul id="lobby-players" class="lobby-players"></ul>
+    <button id="btn-start" class="btn btn-primary">Начать игру</button>
+    <p class="hint">Нужно минимум 3 игрока в комнате</p>
+  </div>
+</div>
+
+<div id="screen-game" class="screen hidden">
+  <div class="table">
+    <div class="topbar">
+      <div class="trump" id="trump-display"></div>
+      <div class="deck-count" id="deck-count"></div>
+      <div class="room-tag" id="room-tag"></div>
+    </div>
+
+    <div class="opponents" id="opponents"></div>
+
+    <div class="trick-area" id="trick-area"></div>
+
+    <div class="turn-banner" id="turn-banner"></div>
+
+    <div class="scoreboard" id="scoreboard"></div>
+
+    <div class="log" id="log"></div>
+
+    <div class="my-hand" id="my-hand"></div>
+  </div>
+</div>
+
+<div id="screen-round-end" class="screen hidden">
+  <div class="card-panel center">
+    <h2 id="round-end-title"></h2>
+    <div id="round-end-scores"></div>
+    <button id="btn-next-round" class="btn btn-primary hidden">Следующая раздача</button>
+    <p class="hint" id="wait-host-hint">Ждём, пока хост начнёт следующую раздачу…</p>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

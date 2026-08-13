@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
 <title>Бура Онлайн</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -53,20 +56,23 @@
       <div class="room-tag" id="room-tag"></div>
     </div>
 
-    <div class="opponents" id="opponents"></div>
+    <div class="table-scroll">
+      <div class="opponents" id="opponents"></div>
+      <div class="trick-area" id="trick-area"></div>
+      <div class="trick-banner" id="trick-banner"></div>
+      <div class="turn-banner" id="turn-banner"></div>
+      <div class="scoreboard" id="scoreboard"></div>
+      <details class="log-toggle">
+        <summary>История ходов</summary>
+        <div class="log" id="log"></div>
+      </details>
+    </div>
 
-    <div class="trick-area" id="trick-area"></div>
-    <div class="trick-banner" id="trick-banner"></div>
-
-    <div class="turn-banner" id="turn-banner"></div>
-
-    <div class="scoreboard" id="scoreboard"></div>
-
-    <div class="log" id="log"></div>
-
-    <div class="my-hand" id="my-hand"></div>
-    <button id="btn-end-turn" class="btn btn-primary hidden">Закончить ход</button>
-    <p class="hint" id="multi-hint">Можно выбрать несколько карт одной масти за раз</p>
+    <div class="hand-dock">
+      <p class="hint" id="multi-hint">Можно выбрать несколько карт одной масти</p>
+      <div class="my-hand" id="my-hand"></div>
+      <button id="btn-end-turn" class="btn btn-primary hidden">Закончить ход</button>
+    </div>
   </div>
 </div>
 

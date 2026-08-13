@@ -41,6 +41,12 @@ function cardEl(card, opts = {}) {
     + (opts.selected ? ' selected' : '')
     + (opts.winnerCard ? ' winner-card' : '');
   div.innerHTML = `<div>${card.rank}</div><div class="suit">${card.suit}</div>`;
+  if (opts.badge) {
+    const badge = document.createElement('div');
+    badge.className = 'card-badge';
+    badge.textContent = opts.badge;
+    div.appendChild(badge);
+  }
   if (opts.onClick) div.addEventListener('click', opts.onClick);
   return div;
 }
@@ -74,6 +80,8 @@ function connectSocket(url) {
       showScreen('connect');
     }
     document.getElementById('connect-error').textContent = msg;
+    document.getElementById('btn-create').disabled = false;
+    document.getElementById('btn-join').disabled = false;
   });
 
   s.on('room_update', onRoomUpdate);
@@ -87,6 +95,8 @@ function connectSocket(url) {
 
   s.on('connect_error', () => {
     document.getElementById('connect-error').textContent = 'Не удалось подключиться к серверу';
+    document.getElementById('btn-create').disabled = false;
+    document.getElementById('btn-join').disabled = false;
   });
 
   return s;
@@ -100,6 +110,9 @@ function tryAutoResume() {
 }
 
 document.getElementById('btn-create').addEventListener('click', () => {
+  const createBtn = document.getElementById('btn-create');
+  const joinBtn = document.getElementById('btn-join');
+  if (createBtn.disabled) return; // защита от дублей при быстром повторном клике
   myName = document.getElementById('player-name').value.trim();
   const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
   if (!url) {
@@ -112,6 +125,9 @@ document.getElementById('btn-create').addEventListener('click', () => {
   }
   localStorage.setItem('bura_name', myName);
   localStorage.removeItem('bura_room_code');
+  createBtn.disabled = true;
+  joinBtn.disabled = true;
+  document.getElementById('connect-error').textContent = 'Подключаемся…';
   socket = connectSocket(url);
   socket.once('connect', () => {
     socket.emit('create_room', { name: myName, token: myToken });
@@ -119,6 +135,9 @@ document.getElementById('btn-create').addEventListener('click', () => {
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
+  const createBtn = document.getElementById('btn-create');
+  const joinBtn = document.getElementById('btn-join');
+  if (joinBtn.disabled) return;
   myName = document.getElementById('player-name').value.trim();
   const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
   const code = document.getElementById('room-code').value.trim().toUpperCase();
@@ -136,6 +155,9 @@ document.getElementById('btn-join').addEventListener('click', () => {
   }
   localStorage.setItem('bura_name', myName);
   localStorage.removeItem('bura_room_code');
+  createBtn.disabled = true;
+  joinBtn.disabled = true;
+  document.getElementById('connect-error').textContent = 'Подключаемся…';
   socket = connectSocket(url);
   socket.once('connect', () => {
     socket.emit('join_room', { code, name: myName, token: myToken });
@@ -154,7 +176,8 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!lastState) return;
   const me = lastState.players.find((p) => p.id === myId);
   if (!me || !me.hand || selectedCardIds.size === 0) return;
-  const cards = me.hand.filter((c) => selectedCardIds.has(cardId(c)));
+  const idsInClickOrder = Array.from(selectedCardIds);
+  const cards = idsInClickOrder.map((id) => me.hand.find((c) => cardId(c) === id)).filter(Boolean);
   selectedCardIds.clear();
   socket.emit('play_card', { cards });
 });
@@ -163,6 +186,8 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
 function onRoomUpdate(state) {
   lastState = state;
   document.getElementById('connect-error').textContent = '';
+  document.getElementById('btn-create').disabled = false;
+  document.getElementById('btn-join').disabled = false;
   localStorage.setItem('bura_room_code', state.code);
 
   // сбрасываем выбор карт, если ход уже не наш или начался новый ход
@@ -352,11 +377,14 @@ function renderGame(state) {
   if (me && me.hand) {
     const amLeader = state.trick.length === 0;
     const required = amLeader ? null : state.requiredCount;
+    const orderedSelectedIds = Array.from(selectedCardIds); // порядок клика, не порядок в руке
     me.hand.forEach((card) => {
       const id = cardId(card);
+      const selIndex = orderedSelectedIds.indexOf(id);
       hand.appendChild(cardEl(card, {
         disabled: !myTurn,
         selected: selectedCardIds.has(id),
+        badge: selIndex >= 0 ? String(selIndex + 1) : null,
         onClick: () => {
           if (!myTurn) return;
           if (selectedCardIds.has(id)) {

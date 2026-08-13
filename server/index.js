@@ -11,7 +11,12 @@ app.use(cors());
 app.get('/', (req, res) => res.send('Bura server is running ✅'));
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, {
+  cors: { origin: '*' },
+  // Терпимее к мобильным сетям: не рвём сессию, если телефон на секунды теряет связь/уходит в фон
+  pingInterval: 20000,
+  pingTimeout: 60000,
+});
 
 const rooms = {}; // code -> room
 const tokenToRoom = {}; // playerToken -> room code

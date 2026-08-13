@@ -1,8 +1,8 @@
 // Логика карточной игры "Бура" (52 карты, 3-4 игрока)
 // Правило мультиброса: открывающий кидает N карт одной масти, каждый следующий
 // обязан ответить РОВНО N картами (любых мастей, либо всеми, что остались, если их меньше).
-// Взятка разбивается на колонки по позициям - i-я карта каждого игрока бьётся
-// только против i-х карт остальных, а не против всей кучи разом.
+// Победитель взятки определяется ОДИН - тот, чья карта в целом сильнее всех остальных
+// (по правилам козыря/масти хода), и забирает ВСЮ взятку целиком.
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 // В буре 10 сильнее короля/дамы/валета, слабее только туза
@@ -11,8 +11,9 @@ const POINTS = {
   '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0,
   '10': 10, 'J': 2, 'Q': 3, 'K': 4, 'A': 11,
 };
-const WIN_SCORE = 31;
-const HAND_SIZE = 4;
+const WIN_SCORE = 31; // мгновенная победа в раздаче при наборе этих очков
+const HAND_SIZE = 4; // карт в руке у каждого игрока
+const ELIMINATION_LIMIT = 12; // очков вылета для выбывания из игры
 
 function createDeck() {
   const deck = [];
@@ -36,18 +37,26 @@ function cardId(c) {
   return c.rank + c.suit;
 }
 
+function newPlayer(id, token, name) {
+  return {
+    id, token, name, hand: [], score: 0, roundsWon: 0,
+    penalty: 0, penaltyDelta: 0, connected: true,
+  };
+}
+
 function createRoom(code, hostId, hostToken, hostName) {
   return {
     code,
     hostToken,
-    players: [{ id: hostId, token: hostToken, name: hostName, hand: [], score: 0, roundsWon: 0, connected: true }],
+    players: [newPlayer(hostId, hostToken, hostName)],
+    eliminated: [],
     deck: [],
     trumpSuit: null,
     trumpCard: null,
-    trick: [], // { playerId, cards: [...] } в порядке хода
+    trick: [],
     leadIndex: 0,
     turnIndex: 0,
-    phase: 'lobby', // lobby | playing | resolving | round_end | game_over
+    phase: 'lobby',
     log: [],
     dealerIndex: -1,
     cleanupTimer: null,
@@ -56,12 +65,12 @@ function createRoom(code, hostId, hostToken, hostName) {
 
 function addPlayer(room, id, token, name) {
   if (room.players.length >= 4) return false;
-  room.players.push({ id, token, name, hand: [], score: 0, roundsWon: 0, connected: true });
+  room.players.push(newPlayer(id, token, name));
   return true;
 }
 
 function findPlayerByToken(room, token) {
-  return room.players.find((p) => p.token === token);
+  return room.players.find((p) => p.token === token) || room.eliminated.find((p) => p.token === token);
 }
 
 function kickPlayer(room, targetPlayerId) {
@@ -71,6 +80,14 @@ function kickPlayer(room, targetPlayerId) {
   return removed;
 }
 
+function renamePlayer(room, targetPlayerId, newName) {
+  const target = room.players.find((p) => p.id === targetPlayerId)
+    || room.eliminated.find((p) => p.id === targetPlayerId);
+  if (!target) return false;
+  target.name = newName.slice(0, 16);
+  return true;
+}
+
 function startRound(room) {
   room.deck = shuffle(createDeck());
   room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
@@ -78,6 +95,7 @@ function startRound(room) {
     p.hand = [];
     for (let i = 0; i < HAND_SIZE; i++) p.hand.push(room.deck.pop());
     p.score = 0;
+    p.penaltyDelta = 0;
   }
   room.trumpCard = room.deck.pop();
   room.trumpSuit = room.trumpCard.suit;
@@ -93,9 +111,8 @@ function currentPlayer(room) {
   return room.players[room.turnIndex];
 }
 
-// Сколько карт обязан положить игрок прямо сейчас
 function requiredCountFor(room, player) {
-  if (room.trick.length === 0) return null; // он открывает - сам решает сколько (минимум 1)
+  if (room.trick.length === 0) return null;
   const leaderCount = room.trick[0].cards.length;
   return Math.min(leaderCount, player.hand.length);
 }
@@ -118,11 +135,9 @@ function isValidSubmission(room, playerId, cards) {
 
   const isLeader = room.trick.length === 0;
   if (isLeader) {
-    // Открывающий обязан кидать одной мастью, количество - на его усмотрение
     const firstSuit = cards[0].suit;
     return cards.every((c) => c.suit === firstSuit);
   }
-  // Отвечающий обязан выложить РОВНО столько же карт (или все, если их меньше) - масти любые
   const required = requiredCountFor(room, player);
   return cards.length === required;
 }
@@ -143,62 +158,37 @@ function playCards(room, playerId, cards) {
   return null;
 }
 
-// Разрешает взятку ПОКОЛОННО: i-я карта каждого игрока бьётся только против i-х карт
-// остальных участников этой конкретной колонки. Козырь или старшая карта в масти хода
-// побеждает исключительно в СВОЕЙ колонке, а не забирает всю кучу.
 function resolveTrickWinner(room) {
-  const leaderCount = room.trick[0].cards.length;
-  const columns = [];
+  const leadSuit = room.trick[0].cards[0].suit;
+  let winningCard = null;
+  let winnerId = null;
 
-  for (let i = 0; i < leaderCount; i++) {
-    const entries = room.trick
-      .filter((e) => e.cards.length > i)
-      .map((e) => ({ playerId: e.playerId, card: e.cards[i] }));
-    if (entries.length === 0) continue;
-
-    const leadSuit = room.trick[0].cards[i].suit;
-    let winningCard = null;
-    let winnerId = null;
-
-    for (const en of entries) {
-      const c = en.card;
-      if (!winningCard) { winningCard = c; winnerId = en.playerId; continue; }
+  for (const entry of room.trick) {
+    for (const c of entry.cards) {
+      if (!winningCard) { winningCard = c; winnerId = entry.playerId; continue; }
       const cIsTrump = c.suit === room.trumpSuit;
       const wIsTrump = winningCard.suit === room.trumpSuit;
 
       if (cIsTrump && !wIsTrump) {
-        winningCard = c; winnerId = en.playerId;
+        winningCard = c; winnerId = entry.playerId;
       } else if (cIsTrump && wIsTrump) {
-        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = en.playerId; }
+        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = entry.playerId; }
       } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit === leadSuit) {
-        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = en.playerId; }
+        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = entry.playerId; }
       } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit !== leadSuit) {
-        winningCard = c; winnerId = en.playerId;
+        winningCard = c; winnerId = entry.playerId;
       }
     }
-
-    const points = entries.reduce((s, en) => s + POINTS[en.card.rank], 0);
-    const winner = room.players.find((p) => p.id === winnerId);
-    winner.score += points;
-    columns.push({ index: i, entries, winnerId, winnerName: winner.name, points });
   }
 
-  const lastCol = columns[columns.length - 1];
-  const overallWinner = room.players.find((p) => p.id === lastCol.winnerId);
-  const totalPoints = columns.reduce((s, c) => s + c.points, 0);
+  const trickPoints = room.trick.reduce(
+    (sum, e) => sum + e.cards.reduce((s, c) => s + POINTS[c.rank], 0), 0,
+  );
+  const winner = room.players.find((p) => p.id === winnerId);
+  winner.score += trickPoints;
+  room.log.push(`${winner.name} забирает всю взятку (+${trickPoints} очк., сильнейшая карта ${winningCard.rank}${winningCard.suit})`);
 
-  room.log.push(`Взятка разыграна по колонкам (${columns.length}). Ведёт дальше ${overallWinner.name}.`);
-  columns.forEach((c) => {
-    room.log.push(`  Колонка ${c.index + 1}: забирает ${c.winnerName} (+${c.points})`);
-  });
-
-  return {
-    winnerId: overallWinner.id,
-    winnerName: overallWinner.name,
-    trickPoints: totalPoints,
-    trick: room.trick,
-    columns,
-  };
+  return { winnerId, winnerName: winner.name, trickPoints, trick: room.trick, winningCard };
 }
 
 function finalizeTrick(room, winnerId) {
@@ -227,6 +217,34 @@ function finalizeTrick(room, winnerId) {
   }
 }
 
+function applyEliminationPenalties(room, roundWinnerId) {
+  for (const p of room.players) {
+    let delta;
+    if (p.id === roundWinnerId) delta = 0;
+    else if (p.score === 0) delta = 4;
+    else if (p.score >= 30) delta = 2;
+    else delta = 3;
+    p.penalty += delta;
+    p.penaltyDelta = delta;
+  }
+
+  const toEliminate = room.players.filter((p) => p.penalty >= ELIMINATION_LIMIT);
+  for (const p of toEliminate) {
+    room.log.push(`❌ ${p.name} выбывает из игры (${p.penalty} очков вылета)`);
+    const idx = room.players.findIndex((pl) => pl.id === p.id);
+    if (idx !== -1) {
+      const [removed] = room.players.splice(idx, 1);
+      room.eliminated.push(removed);
+    }
+  }
+
+  if (room.players.length === 1) {
+    room.phase = 'game_over';
+    room.overallWinnerName = room.players[0].name;
+    room.log.push(`🏆 Игра окончена! Победитель: ${room.overallWinnerName}`);
+  }
+}
+
 function endRound(room, winner, isBura) {
   winner.roundsWon += 1;
   room.phase = 'round_end';
@@ -235,10 +253,12 @@ function endRound(room, winner, isBura) {
   );
   room.lastWinnerName = winner.name;
   room.lastWinnerIsBura = isBura;
+  applyEliminationPenalties(room, winner.id);
 }
 
 function publicStateFor(room, forPlayerId) {
-  const host = room.players.find((p) => p.token === room.hostToken);
+  const host = room.players.find((p) => p.token === room.hostToken)
+    || room.eliminated.find((p) => p.token === room.hostToken);
   const me = room.players.find((p) => p.id === forPlayerId);
   return {
     code: room.code,
@@ -253,11 +273,16 @@ function publicStateFor(room, forPlayerId) {
     log: room.log.slice(-14),
     lastWinnerName: room.lastWinnerName,
     lastWinnerIsBura: room.lastWinnerIsBura,
+    overallWinnerName: room.overallWinnerName,
+    eliminationLimit: ELIMINATION_LIMIT,
+    eliminated: room.eliminated.map((p) => ({ name: p.name, penalty: p.penalty })),
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
       score: p.score,
       roundsWon: p.roundsWon,
+      penalty: p.penalty,
+      penaltyDelta: p.penaltyDelta,
       connected: p.connected,
       handCount: p.hand.length,
       hand: p.id === forPlayerId ? p.hand : undefined,
@@ -266,7 +291,7 @@ function publicStateFor(room, forPlayerId) {
 }
 
 module.exports = {
-  SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE,
-  createRoom, addPlayer, findPlayerByToken, kickPlayer, startRound,
+  SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE, ELIMINATION_LIMIT,
+  createRoom, addPlayer, findPlayerByToken, kickPlayer, renamePlayer, startRound,
   isValidSubmission, playCards, finalizeTrick, publicStateFor, cardId,
 };

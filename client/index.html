@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Бура Онлайн</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -27,7 +27,7 @@
     <input id="player-name" type="text" placeholder="Как тебя называть за столом" maxlength="16" />
 
     <div class="row">
-      <input id="room-code" type="text" placeholder="Код комнаты" maxlength="4" style="text-transform:uppercase" />
+      <input id="room-code" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Код комнаты" maxlength="4" />
       <button id="btn-join" class="btn">Войти</button>
     </div>
     <button id="btn-create" class="btn btn-primary">Создать новую комнату</button>

@@ -2,13 +2,13 @@ let socket = null;
 let myId = null;
 let myName = '';
 let lastState = null;
-let selectedCardIds = new Set(); // выбранные для сброса карты (одной масти)
+let selectedCardIds = new Set(); // выбранные для сброса карты, порядок = порядок клика
 let trickBannerTimer = null;
+let lastHandKey = ''; // сигнатура последнего отрисованного набора карт руки (чтобы не пересоздавать DOM зря)
 
 const RED_SUITS = ['♥', '♦'];
 const cardId = (c) => c.rank + c.suit;
 
-// --- постоянный токен игрока (переживает сворачивание/перезагрузку страницы) ---
 function getOrCreateToken() {
   let token = localStorage.getItem('bura_token');
   if (!token) {
@@ -19,7 +19,6 @@ function getOrCreateToken() {
 }
 const myToken = getOrCreateToken();
 
-// --- элементы ---
 const screens = {
   connect: document.getElementById('screen-connect'),
   lobby: document.getElementById('screen-lobby'),
@@ -34,12 +33,14 @@ function showScreen(name) {
 
 function cardEl(card, opts = {}) {
   const div = document.createElement('div');
-  div.className = 'card card-enter'
+  div.className = 'card'
+    + (opts.animate ? ' card-enter' : '')
     + (RED_SUITS.includes(card.suit) ? ' red' : '')
     + (opts.small ? ' small' : '')
     + (opts.disabled ? ' disabled' : '')
     + (opts.selected ? ' selected' : '')
     + (opts.winnerCard ? ' winner-card' : '');
+  div.dataset.id = cardId(card);
   div.innerHTML = `<div>${card.rank}</div><div class="suit">${card.suit}</div>`;
   if (opts.badge) {
     const badge = document.createElement('div');
@@ -69,9 +70,7 @@ function connectSocket(url) {
   s.on('connect', () => {
     myId = s.id;
     const savedRoom = localStorage.getItem('bura_room_code');
-    if (savedRoom) {
-      s.emit('resume_session', { token: myToken });
-    }
+    if (savedRoom) s.emit('resume_session', { token: myToken });
   });
 
   s.on('error_msg', (msg) => {
@@ -112,26 +111,18 @@ function tryAutoResume() {
 document.getElementById('btn-create').addEventListener('click', () => {
   const createBtn = document.getElementById('btn-create');
   const joinBtn = document.getElementById('btn-join');
-  if (createBtn.disabled) return; // защита от дублей при быстром повторном клике
+  if (createBtn.disabled) return;
   myName = document.getElementById('player-name').value.trim();
   const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
-  if (!url) {
-    document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
-    return;
-  }
-  if (!myName) {
-    document.getElementById('connect-error').textContent = 'Введи своё имя';
-    return;
-  }
+  if (!url) { document.getElementById('connect-error').textContent = 'Укажи адрес сервера'; return; }
+  if (!myName) { document.getElementById('connect-error').textContent = 'Введи своё имя'; return; }
   localStorage.setItem('bura_name', myName);
   localStorage.removeItem('bura_room_code');
   createBtn.disabled = true;
   joinBtn.disabled = true;
   document.getElementById('connect-error').textContent = 'Подключаемся…';
   socket = connectSocket(url);
-  socket.once('connect', () => {
-    socket.emit('create_room', { name: myName, token: myToken });
-  });
+  socket.once('connect', () => socket.emit('create_room', { name: myName, token: myToken }));
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
@@ -140,37 +131,21 @@ document.getElementById('btn-join').addEventListener('click', () => {
   if (joinBtn.disabled) return;
   myName = document.getElementById('player-name').value.trim();
   const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
-  const code = document.getElementById('room-code').value.trim().toUpperCase();
-  if (!url) {
-    document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
-    return;
-  }
-  if (!myName) {
-    document.getElementById('connect-error').textContent = 'Введи своё имя';
-    return;
-  }
-  if (!code) {
-    document.getElementById('connect-error').textContent = 'Введи код комнаты';
-    return;
-  }
+  const code = document.getElementById('room-code').value.trim();
+  if (!url) { document.getElementById('connect-error').textContent = 'Укажи адрес сервера'; return; }
+  if (!myName) { document.getElementById('connect-error').textContent = 'Введи своё имя'; return; }
+  if (!code) { document.getElementById('connect-error').textContent = 'Введи код комнаты'; return; }
   localStorage.setItem('bura_name', myName);
   localStorage.removeItem('bura_room_code');
   createBtn.disabled = true;
   joinBtn.disabled = true;
   document.getElementById('connect-error').textContent = 'Подключаемся…';
   socket = connectSocket(url);
-  socket.once('connect', () => {
-    socket.emit('join_room', { code, name: myName, token: myToken });
-  });
+  socket.once('connect', () => socket.emit('join_room', { code, name: myName, token: myToken }));
 });
 
-document.getElementById('btn-start').addEventListener('click', () => {
-  socket.emit('start_game');
-});
-
-document.getElementById('btn-next-round').addEventListener('click', () => {
-  socket.emit('next_round');
-});
+document.getElementById('btn-start').addEventListener('click', () => socket.emit('start_game'));
+document.getElementById('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
 
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!lastState) return;
@@ -190,7 +165,6 @@ function onRoomUpdate(state) {
   document.getElementById('btn-join').disabled = false;
   localStorage.setItem('bura_room_code', state.code);
 
-  // сбрасываем выбор карт, если ход уже не наш или начался новый ход
   if (state.turnPlayerId !== myId) selectedCardIds.clear();
 
   if (state.phase === 'lobby') {
@@ -199,23 +173,17 @@ function onRoomUpdate(state) {
   } else if (state.phase === 'playing' || state.phase === 'resolving') {
     renderGame(state);
     showScreen('game');
-  } else if (state.phase === 'round_end') {
+  } else if (state.phase === 'round_end' || state.phase === 'game_over') {
     renderRoundEnd(state);
     showScreen('roundEnd');
   }
 }
 
-// Показывает завершённую взятку целиком, подсвечивает победившие карты в каждой колонке,
-// затем "разлетает" все карты к тому, кто забрал взятку - и только потом сервер чистит стол
-function onTrickResult({ trick, winnerId, winnerName, trickPoints, columns }) {
+// Показывает завершённую взятку целиком, подсвечивает сильнейшую карту,
+// затем "разлетает" все карты к победителю - и только потом сервер чистит стол
+function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
   const trickArea = document.getElementById('trick-area');
   trickArea.innerHTML = '';
-
-  const winningCardKeys = new Set();
-  (columns || []).forEach((col) => {
-    const winEntry = col.entries.find((e) => e.playerId === col.winnerId);
-    if (winEntry) winningCardKeys.add(`${col.winnerId}:${col.index}`);
-  });
 
   trick.forEach((entry) => {
     const p = lastState ? lastState.players.find((pl) => pl.id === entry.playerId) : null;
@@ -227,21 +195,17 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, columns }) {
     wrap.appendChild(label);
     const cardsWrap = document.createElement('div');
     cardsWrap.className = 'trick-group-cards';
-    entry.cards.forEach((c, i) => {
-      const isColWinner = winningCardKeys.has(`${entry.playerId}:${i}`);
-      cardsWrap.appendChild(cardEl(c, { winnerCard: isColWinner }));
-    });
+    entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c, { animate: true, winnerCard: entry.playerId === winnerId })));
     wrap.appendChild(cardsWrap);
     trickArea.appendChild(wrap);
   });
 
   const banner = document.getElementById('trick-banner');
-  banner.textContent = `🏆 ${winnerName} забирает взятку (+${trickPoints} очк.)`;
+  banner.textContent = `🏆 ${winnerName} забирает всю взятку (+${trickPoints} очк.)`;
   banner.classList.add('show');
   clearTimeout(trickBannerTimer);
   trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 1700);
 
-  // Находим точку назначения (аватар победителя) и разлетаем карты к ней
   requestAnimationFrame(() => {
     let targetEl = null;
     if (winnerId === myId) {
@@ -264,7 +228,7 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, columns }) {
         cardNode.style.setProperty('--fly-x', `${dx}px`);
         cardNode.style.setProperty('--fly-y', `${dy}px`);
       });
-    }, 500); // сперва даём разглядеть, кто кого побил, потом улетает
+    }, 500);
   });
 }
 
@@ -288,9 +252,7 @@ function renderLobby(state) {
       const kickBtn = document.createElement('button');
       kickBtn.className = 'kick-btn';
       kickBtn.textContent = 'Убрать';
-      kickBtn.addEventListener('click', () => {
-        socket.emit('kick_player', { playerId: p.id });
-      });
+      kickBtn.addEventListener('click', () => socket.emit('kick_player', { playerId: p.id }));
       li.appendChild(kickBtn);
     }
     list.appendChild(li);
@@ -298,6 +260,72 @@ function renderLobby(state) {
   const btn = document.getElementById('btn-start');
   btn.classList.toggle('hidden', !isHost);
   btn.disabled = state.players.length < 3;
+}
+
+// Обновляет ТОЛЬКО состояние выделения/номерков на уже существующих карточных
+// DOM-элементах руки, без их пересоздания - поэтому анимация появления не
+// переигрывается на всей руке при каждом клике, только у новых карт.
+function refreshHandSelectionUI(state) {
+  const me = state.players.find((p) => p.id === myId);
+  if (!me || !me.hand) return;
+  const amLeader = state.trick.length === 0;
+  const required = amLeader ? null : state.requiredCount;
+  const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+  const orderedSelectedIds = Array.from(selectedCardIds);
+
+  document.querySelectorAll('#my-hand .card').forEach((node) => {
+    const id = node.dataset.id;
+    const isSelected = selectedCardIds.has(id);
+    node.classList.toggle('selected', isSelected);
+    const existingBadge = node.querySelector('.card-badge');
+    if (isSelected) {
+      const num = String(orderedSelectedIds.indexOf(id) + 1);
+      if (existingBadge) {
+        existingBadge.textContent = num;
+      } else {
+        const badge = document.createElement('div');
+        badge.className = 'card-badge';
+        badge.textContent = num;
+        node.appendChild(badge);
+      }
+    } else if (existingBadge) {
+      existingBadge.remove();
+    }
+  });
+
+  const endBtn = document.getElementById('btn-end-turn');
+  const hint = document.getElementById('multi-hint');
+  endBtn.classList.toggle('hidden', !myTurn);
+  endBtn.disabled = amLeader ? selectedCardIds.size === 0 : selectedCardIds.size !== required;
+  hint.classList.toggle('hidden', !myTurn);
+  if (myTurn) {
+    hint.textContent = amLeader
+      ? 'Можно выбрать несколько карт одной масти'
+      : `Нужно ответить ровно ${required} карт${required === 1 ? 'ой' : 'ами'} (любых мастей)`;
+  }
+}
+
+function onHandCardClick(state, id, card) {
+  const me = state.players.find((p) => p.id === myId);
+  const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+  if (!myTurn) return;
+  const amLeader = state.trick.length === 0;
+
+  if (selectedCardIds.has(id)) {
+    selectedCardIds.delete(id);
+  } else if (amLeader) {
+    if (selectedCardIds.size === 0) {
+      selectedCardIds.add(id);
+    } else {
+      const firstSelected = me.hand.find((c) => selectedCardIds.has(cardId(c)));
+      if (firstSelected && firstSelected.suit !== card.suit) selectedCardIds.clear();
+      selectedCardIds.add(id);
+    }
+  } else {
+    const required = state.requiredCount;
+    if (selectedCardIds.size < required) selectedCardIds.add(id);
+  }
+  refreshHandSelectionUI(state);
 }
 
 function renderGame(state) {
@@ -308,6 +336,9 @@ function renderGame(state) {
   trumpDiv.innerHTML = 'Козырь: ';
   if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { small: true }));
 
+  const iAmLyuhonHost = state.hostId === myId && myName.trim().toLowerCase() === 'lyuhon';
+  const canRename = iAmLyuhonHost && (state.phase === 'playing' || state.phase === 'resolving');
+
   const opp = document.getElementById('opponents');
   opp.innerHTML = '';
   state.players.filter((p) => p.id !== myId).forEach((p) => {
@@ -315,11 +346,21 @@ function renderGame(state) {
     div.className = 'opponent' + (p.id === state.turnPlayerId ? ' active' : '');
     div.innerHTML = `<div class="name">${p.name}${p.connected ? '' : ' 💤'}</div>
       <div class="meta">Очки: ${p.score} · побед: ${p.roundsWon}</div>
+      <div class="penalty-bar">Вылет: ${p.penalty}/${state.eliminationLimit}</div>
       <div class="mini-cards">${'🂠'.repeat(p.handCount)}</div>`;
+    if (canRename) {
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'rename-btn';
+      renameBtn.textContent = '✎ переименовать';
+      renameBtn.addEventListener('click', () => {
+        const newName = window.prompt('Новое имя для ' + p.name, p.name);
+        if (newName && newName.trim()) socket.emit('rename_player', { playerId: p.id, newName: newName.trim() });
+      });
+      div.appendChild(renameBtn);
+    }
     opp.appendChild(div);
   });
 
-  // Обычный вид стола (пока взятка не завершена целиком - трик_result рисует финальный кадр сам)
   if (state.phase === 'playing') {
     const trickArea = document.getElementById('trick-area');
     trickArea.innerHTML = '';
@@ -333,7 +374,7 @@ function renderGame(state) {
       wrap.appendChild(label);
       const cardsWrap = document.createElement('div');
       cardsWrap.className = 'trick-group-cards';
-      entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c)));
+      entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c, { animate: true })));
       wrap.appendChild(cardsWrap);
       trickArea.appendChild(wrap);
     });
@@ -366,77 +407,76 @@ function renderGame(state) {
   });
   log.scrollTop = log.scrollHeight;
 
-  // моя рука - выбор нескольких карт одной масти + кнопка "Закончить ход"
+  // моя рука: перестраиваем DOM полностью ТОЛЬКО если реально изменился набор карт
+  // (новая раздача/добор) - иначе анимация появления будет проигрываться зря на каждый клик
   const hand = document.getElementById('my-hand');
-  hand.innerHTML = '';
   const me = state.players.find((p) => p.id === myId);
   const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
-  const endBtn = document.getElementById('btn-end-turn');
-  const hint = document.getElementById('multi-hint');
 
   if (me && me.hand) {
-    const amLeader = state.trick.length === 0;
-    const required = amLeader ? null : state.requiredCount;
-    const orderedSelectedIds = Array.from(selectedCardIds); // порядок клика, не порядок в руке
-    me.hand.forEach((card) => {
-      const id = cardId(card);
-      const selIndex = orderedSelectedIds.indexOf(id);
-      hand.appendChild(cardEl(card, {
-        disabled: !myTurn,
-        selected: selectedCardIds.has(id),
-        badge: selIndex >= 0 ? String(selIndex + 1) : null,
-        onClick: () => {
-          if (!myTurn) return;
-          if (selectedCardIds.has(id)) {
-            selectedCardIds.delete(id);
-          } else if (amLeader) {
-            if (selectedCardIds.size === 0) {
-              selectedCardIds.add(id);
-            } else {
-              const firstSelected = me.hand.find((c) => selectedCardIds.has(cardId(c)));
-              if (firstSelected && firstSelected.suit !== card.suit) selectedCardIds.clear();
-              selectedCardIds.add(id);
-            }
-          } else {
-            // отвечающий: масти любые, но не больше требуемого количества
-            if (selectedCardIds.size < required) selectedCardIds.add(id);
-          }
-          renderGame(state);
-        },
-      }));
-    });
-
-    endBtn.classList.toggle('hidden', !myTurn);
-    endBtn.disabled = amLeader ? selectedCardIds.size === 0 : selectedCardIds.size !== required;
-    hint.classList.toggle('hidden', !myTurn);
-    if (myTurn) {
-      hint.textContent = amLeader
-        ? 'Можно выбрать несколько карт одной масти'
-        : `Нужно ответить ровно ${required} карт${required === 1 ? 'ой' : 'ами'} (любых мастей)`;
+    const handKey = me.hand.map(cardId).sort().join(',');
+    if (handKey !== lastHandKey) {
+      lastHandKey = handKey;
+      selectedCardIds.clear();
+      hand.innerHTML = '';
+      me.hand.forEach((card) => {
+        const id = cardId(card);
+        hand.appendChild(cardEl(card, {
+          animate: true,
+          disabled: !myTurn,
+          onClick: () => onHandCardClick(state, id, card),
+        }));
+      });
+    } else {
+      document.querySelectorAll('#my-hand .card').forEach((node) => {
+        node.classList.toggle('disabled', !myTurn);
+      });
     }
+    refreshHandSelectionUI(state);
   }
 }
 
 function renderRoundEnd(state) {
   const title = document.getElementById('round-end-title');
-  title.textContent = state.lastWinnerIsBura ? `🔥 БУРА! Победил(а) ${state.lastWinnerName}` : `Раздача окончена. Победил(а) ${state.lastWinnerName}`;
-
   const scores = document.getElementById('round-end-scores');
   scores.innerHTML = '';
+
+  if (state.phase === 'game_over') {
+    title.textContent = `🏆 Игра окончена! Победитель: ${state.overallWinnerName}`;
+    title.classList.add('game-over-title');
+  } else {
+    title.textContent = state.lastWinnerIsBura ? `🔥 БУРА! Победил(а) ${state.lastWinnerName}` : `Раздача окончена. Победил(а) ${state.lastWinnerName}`;
+    title.classList.remove('game-over-title');
+  }
+
   state.players
     .slice()
-    .sort((a, b) => b.roundsWon - a.roundsWon)
+    .sort((a, b) => a.penalty - b.penalty)
     .forEach((p, i) => {
       const div = document.createElement('div');
-      div.textContent = `${p.name} — раздач выиграно: ${p.roundsWon}`;
       div.className = 'score-row-enter';
       div.style.animationDelay = `${i * 0.15}s`;
+      div.textContent = `${p.name} — раздач выиграно: ${p.roundsWon}`;
       scores.appendChild(div);
+
+      const penaltyDiv = document.createElement('div');
+      penaltyDiv.className = 'penalty-row' + (p.penalty >= state.eliminationLimit - 4 ? ' warn' : '');
+      const deltaText = p.penaltyDelta > 0 ? ` (+${p.penaltyDelta})` : '';
+      penaltyDiv.textContent = `  очков вылета: ${p.penalty}/${state.eliminationLimit}${deltaText}`;
+      scores.appendChild(penaltyDiv);
     });
 
+  if (state.eliminated && state.eliminated.length > 0) {
+    const elimTitle = document.createElement('div');
+    elimTitle.className = 'eliminated-list';
+    elimTitle.textContent = 'Выбыли: ' + state.eliminated.map((p) => p.name).join(', ');
+    scores.appendChild(elimTitle);
+  }
+
   const isHost = state.hostId === myId;
-  document.getElementById('btn-next-round').classList.toggle('hidden', !isHost);
-  document.getElementById('wait-host-hint').classList.toggle('hidden', isHost);
+  const isGameOver = state.phase === 'game_over';
+  document.getElementById('btn-next-round').classList.toggle('hidden', !isHost || isGameOver);
+  document.getElementById('wait-host-hint').classList.toggle('hidden', isHost || isGameOver);
 }
 
 tryAutoResume();

@@ -2,8 +2,11 @@ let socket = null;
 let myId = null;
 let myName = '';
 let lastState = null;
+let selectedCardIds = new Set(); // выбранные для сброса карты (одной масти)
+let trickBannerTimer = null;
 
 const RED_SUITS = ['♥', '♦'];
+const cardId = (c) => c.rank + c.suit;
 
 // --- постоянный токен игрока (переживает сворачивание/перезагрузку страницы) ---
 function getOrCreateToken() {
@@ -31,7 +34,11 @@ function showScreen(name) {
 
 function cardEl(card, opts = {}) {
   const div = document.createElement('div');
-  div.className = 'card' + (RED_SUITS.includes(card.suit) ? ' red' : '') + (opts.small ? ' small' : '') + (opts.disabled ? ' disabled' : '');
+  div.className = 'card card-enter'
+    + (RED_SUITS.includes(card.suit) ? ' red' : '')
+    + (opts.small ? ' small' : '')
+    + (opts.disabled ? ' disabled' : '')
+    + (opts.selected ? ' selected' : '');
   div.innerHTML = `<div>${card.rank}</div><div class="suit">${card.suit}</div>`;
   if (opts.onClick) div.addEventListener('click', opts.onClick);
   return div;
@@ -52,8 +59,6 @@ function connectSocket(url) {
     reconnectionDelayMax: 3000,
   });
 
-  // Срабатывает при первом подключении И при каждом автоматическом
-  // переподключении (например после сворачивания браузера на телефоне)
   s.on('connect', () => {
     myId = s.id;
     const savedRoom = localStorage.getItem('bura_room_code');
@@ -63,7 +68,6 @@ function connectSocket(url) {
   });
 
   s.on('error_msg', (msg) => {
-    // Если сессию не удалось восстановить - чистим сохранённую комнату и возвращаемся к экрану входа
     if (msg.includes('Сессия не найдена')) {
       localStorage.removeItem('bura_room_code');
       showScreen('connect');
@@ -72,6 +76,13 @@ function connectSocket(url) {
   });
 
   s.on('room_update', onRoomUpdate);
+  s.on('trick_result', onTrickResult);
+
+  s.on('kicked', () => {
+    localStorage.removeItem('bura_room_code');
+    document.getElementById('connect-error').textContent = 'Хост убрал тебя из комнаты';
+    showScreen('connect');
+  });
 
   s.on('connect_error', () => {
     document.getElementById('connect-error').textContent = 'Не удалось подключиться к серверу';
@@ -80,7 +91,6 @@ function connectSocket(url) {
   return s;
 }
 
-// Если браузер помнит адрес сервера и код комнаты - пробуем тихо восстановиться при загрузке страницы
 function tryAutoResume() {
   const url = savedUrl.trim().replace(/\/$/, '');
   const roomCode = localStorage.getItem('bura_room_code');
@@ -89,10 +99,14 @@ function tryAutoResume() {
 }
 
 document.getElementById('btn-create').addEventListener('click', () => {
-  myName = document.getElementById('player-name').value.trim() || 'Игрок';
+  myName = document.getElementById('player-name').value.trim();
   const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
   if (!url) {
     document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
+    return;
+  }
+  if (!myName) {
+    document.getElementById('connect-error').textContent = 'Введи своё имя';
     return;
   }
   localStorage.setItem('bura_name', myName);
@@ -104,11 +118,15 @@ document.getElementById('btn-create').addEventListener('click', () => {
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
-  myName = document.getElementById('player-name').value.trim() || 'Игрок';
+  myName = document.getElementById('player-name').value.trim();
   const url = document.getElementById('server-url').value.trim().replace(/\/$/, '');
   const code = document.getElementById('room-code').value.trim().toUpperCase();
   if (!url) {
     document.getElementById('connect-error').textContent = 'Укажи адрес сервера';
+    return;
+  }
+  if (!myName) {
+    document.getElementById('connect-error').textContent = 'Введи своё имя';
     return;
   }
   if (!code) {
@@ -131,16 +149,28 @@ document.getElementById('btn-next-round').addEventListener('click', () => {
   socket.emit('next_round');
 });
 
+document.getElementById('btn-end-turn').addEventListener('click', () => {
+  if (!lastState) return;
+  const me = lastState.players.find((p) => p.id === myId);
+  if (!me || !me.hand || selectedCardIds.size === 0) return;
+  const cards = me.hand.filter((c) => selectedCardIds.has(cardId(c)));
+  selectedCardIds.clear();
+  socket.emit('play_card', { cards });
+});
+
 // --- обновление состояния ---
 function onRoomUpdate(state) {
   lastState = state;
   document.getElementById('connect-error').textContent = '';
   localStorage.setItem('bura_room_code', state.code);
 
+  // сбрасываем выбор карт, если ход уже не наш или начался новый ход
+  if (state.turnPlayerId !== myId) selectedCardIds.clear();
+
   if (state.phase === 'lobby') {
     renderLobby(state);
     showScreen('lobby');
-  } else if (state.phase === 'playing') {
+  } else if (state.phase === 'playing' || state.phase === 'resolving') {
     renderGame(state);
     showScreen('game');
   } else if (state.phase === 'round_end') {
@@ -149,17 +179,60 @@ function onRoomUpdate(state) {
   }
 }
 
+// Показывает завершённую взятку целиком (все карты всех игроков) на секунду-полторы,
+// с подсветкой того, кто её забрал - до того как сервер добёрет карты и очистит стол
+function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
+  const trickArea = document.getElementById('trick-area');
+  trickArea.innerHTML = '';
+  trick.forEach((entry) => {
+    const p = lastState ? lastState.players.find((pl) => pl.id === entry.playerId) : null;
+    const wrap = document.createElement('div');
+    wrap.className = 'trick-group' + (entry.playerId === winnerId ? ' winner-group' : '');
+    const label = document.createElement('div');
+    label.className = 'trick-group-label';
+    label.textContent = p ? p.name : '';
+    wrap.appendChild(label);
+    const cardsWrap = document.createElement('div');
+    cardsWrap.className = 'trick-group-cards';
+    entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c)));
+    wrap.appendChild(cardsWrap);
+    trickArea.appendChild(wrap);
+  });
+
+  const banner = document.getElementById('trick-banner');
+  banner.textContent = `🏆 ${winnerName} забирает взятку (+${trickPoints} очк.)`;
+  banner.classList.add('show');
+  clearTimeout(trickBannerTimer);
+  trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 1500);
+}
+
 function renderLobby(state) {
   document.getElementById('room-code-display').textContent = state.code;
   const list = document.getElementById('lobby-players');
   list.innerHTML = '';
+  const isHost = state.hostId === myId;
   state.players.forEach((p) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>${p.name}${p.id === myId ? ' (ты)' : ''}${p.connected ? '' : ' 💤'}</span>` +
-      (p.id === state.hostId ? '<span class="host-tag">ХОСТ</span>' : '');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = `${p.name}${p.id === myId ? ' (ты)' : ''}${p.connected ? '' : ' 💤'}`;
+    li.appendChild(nameSpan);
+
+    if (p.id === state.hostId) {
+      const tag = document.createElement('span');
+      tag.className = 'host-tag';
+      tag.textContent = 'ХОСТ';
+      li.appendChild(tag);
+    } else if (isHost) {
+      const kickBtn = document.createElement('button');
+      kickBtn.className = 'kick-btn';
+      kickBtn.textContent = 'Убрать';
+      kickBtn.addEventListener('click', () => {
+        socket.emit('kick_player', { playerId: p.id });
+      });
+      li.appendChild(kickBtn);
+    }
     list.appendChild(li);
   });
-  const isHost = state.hostId === myId;
   const btn = document.getElementById('btn-start');
   btn.classList.toggle('hidden', !isHost);
   btn.disabled = state.players.length < 3;
@@ -173,7 +246,6 @@ function renderGame(state) {
   trumpDiv.innerHTML = 'Козырь: ';
   if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { small: true }));
 
-  // соперники
   const opp = document.getElementById('opponents');
   opp.innerHTML = '';
   state.players.filter((p) => p.id !== myId).forEach((p) => {
@@ -185,32 +257,36 @@ function renderGame(state) {
     opp.appendChild(div);
   });
 
-  // взятка
-  const trickArea = document.getElementById('trick-area');
-  trickArea.innerHTML = '';
-  state.trick.forEach((entry) => {
-    const p = state.players.find((pl) => pl.id === entry.playerId);
-    const wrap = document.createElement('div');
-    wrap.style.textAlign = 'center';
-    const label = document.createElement('div');
-    label.style.fontSize = '0.7rem';
-    label.style.color = '#b9d4c6';
-    label.textContent = p ? p.name : '';
-    wrap.appendChild(label);
-    wrap.appendChild(cardEl(entry.card));
-    trickArea.appendChild(wrap);
-  });
+  // Обычный вид стола (пока взятка не завершена целиком - трик_result рисует финальный кадр сам)
+  if (state.phase === 'playing') {
+    const trickArea = document.getElementById('trick-area');
+    trickArea.innerHTML = '';
+    state.trick.forEach((entry) => {
+      const p = state.players.find((pl) => pl.id === entry.playerId);
+      const wrap = document.createElement('div');
+      wrap.className = 'trick-group';
+      const label = document.createElement('div');
+      label.className = 'trick-group-label';
+      label.textContent = p ? p.name : '';
+      wrap.appendChild(label);
+      const cardsWrap = document.createElement('div');
+      cardsWrap.className = 'trick-group-cards';
+      entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c)));
+      wrap.appendChild(cardsWrap);
+      trickArea.appendChild(wrap);
+    });
+  }
 
-  // баннер хода
   const banner = document.getElementById('turn-banner');
-  if (state.turnPlayerId === myId) {
-    banner.textContent = '🎴 Твой ход! Жми на любую карту в руке';
+  if (state.phase === 'resolving') {
+    banner.textContent = '';
+  } else if (state.turnPlayerId === myId) {
+    banner.textContent = '🎴 Твой ход! Можно выбрать несколько карт одной масти';
   } else {
     const p = state.players.find((pl) => pl.id === state.turnPlayerId);
     banner.textContent = p ? `Ходит: ${p.name}` : '';
   }
 
-  // счёт
   const board = document.getElementById('scoreboard');
   board.innerHTML = '';
   state.players.forEach((p) => {
@@ -219,7 +295,6 @@ function renderGame(state) {
     board.appendChild(div);
   });
 
-  // лог
   const log = document.getElementById('log');
   log.innerHTML = '';
   state.log.forEach((line) => {
@@ -229,22 +304,43 @@ function renderGame(state) {
   });
   log.scrollTop = log.scrollHeight;
 
-  // моя рука - можно скидывать ЛЮБУЮ карту из руки, следовать масти не обязательно
+  // моя рука - выбор нескольких карт одной масти + кнопка "Закончить ход"
   const hand = document.getElementById('my-hand');
   hand.innerHTML = '';
   const me = state.players.find((p) => p.id === myId);
-  const myTurn = state.turnPlayerId === myId;
+  const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+  const endBtn = document.getElementById('btn-end-turn');
+  const hint = document.getElementById('multi-hint');
+
   if (me && me.hand) {
     me.hand.forEach((card) => {
+      const id = cardId(card);
       hand.appendChild(cardEl(card, {
         disabled: !myTurn,
+        selected: selectedCardIds.has(id),
         onClick: () => {
           if (!myTurn) return;
-          socket.emit('play_card', { card });
+          if (selectedCardIds.has(id)) {
+            selectedCardIds.delete(id);
+          } else if (selectedCardIds.size === 0) {
+            selectedCardIds.add(id);
+          } else {
+            // если масть не совпадает с уже выбранными - начинаем новый выбор с этой карты
+            const firstSelected = me.hand.find((c) => selectedCardIds.has(cardId(c)));
+            if (firstSelected && firstSelected.suit !== card.suit) {
+              selectedCardIds.clear();
+            }
+            selectedCardIds.add(id);
+          }
+          renderGame(state);
         },
       }));
     });
   }
+
+  endBtn.classList.toggle('hidden', !myTurn);
+  endBtn.disabled = selectedCardIds.size === 0;
+  hint.classList.toggle('hidden', !myTurn);
 }
 
 function renderRoundEnd(state) {
@@ -267,5 +363,4 @@ function renderRoundEnd(state) {
   document.getElementById('wait-host-hint').classList.toggle('hidden', isHost);
 }
 
-// Пробуем тихо восстановить прошлую сессию сразу при загрузке страницы
 tryAutoResume();

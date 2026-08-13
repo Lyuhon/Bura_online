@@ -3,7 +3,8 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const {
-  createRoom, addPlayer, findPlayerByToken, startRound, isValidPlay, playCard, publicStateFor,
+  createRoom, addPlayer, findPlayerByToken, kickPlayer, startRound,
+  isValidSubmission, playCards, finalizeTrick, publicStateFor,
 } = require('./game');
 
 const app = express();
@@ -13,7 +14,6 @@ app.get('/', (req, res) => res.send('Bura server is running ✅'));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
-  // Терпимее к мобильным сетям: не рвём сессию, если телефон на секунды теряет связь/уходит в фон
   pingInterval: 20000,
   pingTimeout: 60000,
 });
@@ -22,6 +22,7 @@ const rooms = {}; // code -> room
 const tokenToRoom = {}; // playerToken -> room code
 
 const CLEANUP_DELAY_MS = 10 * 60 * 1000; // комната живёт 10 минут после того, как все отключились
+const TRICK_PAUSE_MS = 1400; // пауза перед добором карт, чтобы было видно кто что скинул и кто забрал
 
 function genCode() {
   let code;
@@ -84,7 +85,6 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  // Восстановление сессии после разрыва связи (сворачивание, потеря сети, перезагрузка страницы)
   socket.on('resume_session', ({ token }) => {
     if (!token) return;
     const code = tokenToRoom[token];
@@ -104,6 +104,30 @@ io.on('connection', (socket) => {
     socket.join(room.code);
     socket.data.roomCode = room.code;
     socket.data.token = token;
+    broadcastRoom(room);
+  });
+
+  socket.on('kick_player', ({ playerId }) => {
+    const room = rooms[socket.data.roomCode];
+    if (!room) return;
+    const requester = findPlayerByToken(room, socket.data.token);
+    if (!requester || requester.token !== room.hostToken) return;
+    if (room.phase !== 'lobby') return;
+    if (playerId === socket.id) return;
+
+    const target = room.players.find((p) => p.id === playerId);
+    if (!target) return;
+
+    kickPlayer(room, playerId);
+    delete tokenToRoom[target.token];
+
+    io.to(playerId).emit('kicked');
+    const kickedSocket = io.sockets.sockets.get(playerId);
+    if (kickedSocket) {
+      kickedSocket.leave(room.code);
+      kickedSocket.data.roomCode = null;
+      kickedSocket.data.token = null;
+    }
     broadcastRoom(room);
   });
 
@@ -129,15 +153,32 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on('play_card', ({ card }) => {
+  // Игрок скидывает 1 или несколько карт одной масти за ход
+  socket.on('play_card', ({ cards }) => {
     const room = rooms[socket.data.roomCode];
     if (!room) return;
-    if (!isValidPlay(room, socket.id, card)) {
-      socket.emit('error_msg', 'Недопустимый ход');
+    if (!isValidSubmission(room, socket.id, cards)) {
+      socket.emit('error_msg', 'Недопустимый ход: карты должны быть одной масти и быть у тебя в руке');
       return;
     }
-    playCard(room, socket.id, card);
-    broadcastRoom(room);
+    const result = playCards(room, socket.id, cards);
+
+    if (result) {
+      // Взятка укомплектована - показываем итог всем, потом с паузой добираем карты и чистим стол
+      room.phase = 'resolving';
+      io.to(room.code).emit('trick_result', {
+        trick: result.trick,
+        winnerId: result.winnerId,
+        winnerName: result.winnerName,
+        trickPoints: result.trickPoints,
+      });
+      setTimeout(() => {
+        finalizeTrick(room, result.winnerId);
+        broadcastRoom(room);
+      }, TRICK_PAUSE_MS);
+    } else {
+      broadcastRoom(room);
+    }
   });
 
   socket.on('disconnect', () => {

@@ -1,8 +1,12 @@
-// Логика карточной игры "Бура" (классический вариант, 3-4 игрока)
+// Логика карточной игры "Бура" (полная колода 52 карты, 3-4 игрока)
 
 const SUITS = ['♠', '♥', '♦', '♣'];
-const RANKS = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-const POINTS = { '6': 0, '7': 0, '8': 0, '9': 0, '10': 10, 'J': 2, 'Q': 3, 'K': 4, 'A': 11 };
+// Важно: в буре 10 сильнее короля/дамы/валета, слабее только туза
+const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'J', 'Q', 'K', '10', 'A'];
+const POINTS = {
+  '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0,
+  '10': 10, 'J': 2, 'Q': 3, 'K': 4, 'A': 11,
+};
 const WIN_SCORE = 31; // мгновенная победа в раунде при наборе этих очков
 const HAND_SIZE = 4; // карт в руке у каждого игрока
 
@@ -28,7 +32,6 @@ function cardId(c) {
   return c.rank + c.suit;
 }
 
-// Создаёт новую комнату
 function createRoom(code, hostId, hostToken, hostName) {
   return {
     code,
@@ -37,10 +40,10 @@ function createRoom(code, hostId, hostToken, hostName) {
     deck: [],
     trumpSuit: null,
     trumpCard: null,
-    trick: [], // { playerId, card }
+    trick: [], // { playerId, cards: [...] }
     leadIndex: 0,
     turnIndex: 0,
-    phase: 'lobby', // lobby | playing | round_end | game_over
+    phase: 'lobby', // lobby | playing | resolving | round_end | game_over
     log: [],
     dealerIndex: -1,
     cleanupTimer: null,
@@ -57,6 +60,13 @@ function findPlayerByToken(room, token) {
   return room.players.find((p) => p.token === token);
 }
 
+function kickPlayer(room, targetPlayerId) {
+  const idx = room.players.findIndex((p) => p.id === targetPlayerId);
+  if (idx === -1) return null;
+  const [removed] = room.players.splice(idx, 1);
+  return removed;
+}
+
 function startRound(room) {
   room.deck = shuffle(createDeck());
   room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
@@ -67,8 +77,7 @@ function startRound(room) {
   }
   room.trumpCard = room.deck.pop();
   room.trumpSuit = room.trumpCard.suit;
-  // Козырь кладём в самый низ колоды - он будет последней картой для добора
-  room.deck.unshift(room.trumpCard);
+  room.deck.unshift(room.trumpCard); // козырь уходит на дно, будет последней картой добора
   room.trick = [];
   room.leadIndex = (room.dealerIndex + 1) % room.players.length;
   room.turnIndex = room.leadIndex;
@@ -80,58 +89,92 @@ function currentPlayer(room) {
   return room.players[room.turnIndex];
 }
 
-function isValidPlay(room, playerId, card) {
+// Можно скинуть 1 или несколько карт ОДНОЙ масти за ход (любой, не обязательно в масть хода)
+function isValidSubmission(room, playerId, cards) {
+  if (!Array.isArray(cards) || cards.length === 0) return false;
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return false;
   if (currentPlayer(room).id !== playerId) return false;
   if (room.phase !== 'playing') return false;
-  return player.hand.some((c) => cardId(c) === cardId(card));
+
+  const firstSuit = cards[0].suit;
+  if (!cards.every((c) => c.suit === firstSuit)) return false; // все карты одной масти
+
+  const handIds = player.hand.map(cardId);
+  const seen = new Set();
+  for (const c of cards) {
+    const id = cardId(c);
+    if (seen.has(id)) return false; // нельзя дважды скинуть одну и ту же карту
+    seen.add(id);
+    if (!handIds.includes(id)) return false;
+  }
+  return true;
 }
 
-function playCard(room, playerId, card) {
+// Убирает карты из руки, добавляет во взятку. Если взятка укомплектована всеми игроками -
+// считает победителя и очки, НО НЕ добирает карты и не чистит стол (это делает finalizeTrick,
+// чтобы дать время на анимацию на клиенте перед тем как взятка исчезнет).
+function playCards(room, playerId, cards) {
   const player = room.players.find((p) => p.id === playerId);
-  player.hand = player.hand.filter((c) => cardId(c) !== cardId(card));
-  room.trick.push({ playerId, card });
-  room.log.push(`${player.name} сходил ${card.rank}${card.suit}`);
+  const ids = new Set(cards.map(cardId));
+  player.hand = player.hand.filter((c) => !ids.has(cardId(c)));
+  room.trick.push({ playerId, cards });
+
+  const cardsText = cards.map((c) => `${c.rank}${c.suit}`).join(', ');
+  room.log.push(`${player.name} сходил: ${cardsText}`);
 
   if (room.trick.length === room.players.length) {
-    resolveTrick(room);
-  } else {
-    room.turnIndex = (room.turnIndex + 1) % room.players.length;
+    return resolveTrickWinner(room);
   }
+  room.turnIndex = (room.turnIndex + 1) % room.players.length;
+  return null;
 }
 
-function resolveTrick(room) {
-  const leadSuit = room.trick[0].card.suit;
-  let winnerEntry = room.trick[0];
+function resolveTrickWinner(room) {
+  const leadSuit = room.trick[0].cards[0].suit;
+  let winningCard = null;
+  let winnerId = null;
 
-  for (const entry of room.trick.slice(1)) {
-    const c = entry.card;
-    const w = winnerEntry.card;
-    const cIsTrump = c.suit === room.trumpSuit;
-    const wIsTrump = w.suit === room.trumpSuit;
+  for (const entry of room.trick) {
+    for (const c of entry.cards) {
+      if (!winningCard) {
+        winningCard = c;
+        winnerId = entry.playerId;
+        continue;
+      }
+      const cIsTrump = c.suit === room.trumpSuit;
+      const wIsTrump = winningCard.suit === room.trumpSuit;
 
-    if (cIsTrump && !wIsTrump) {
-      winnerEntry = entry;
-    } else if (cIsTrump && wIsTrump) {
-      if (rankIndex(c.rank) > rankIndex(w.rank)) winnerEntry = entry;
-    } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && w.suit === leadSuit) {
-      if (rankIndex(c.rank) > rankIndex(w.rank)) winnerEntry = entry;
+      if (cIsTrump && !wIsTrump) {
+        winningCard = c; winnerId = entry.playerId;
+      } else if (cIsTrump && wIsTrump) {
+        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = entry.playerId; }
+      } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit === leadSuit) {
+        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = entry.playerId; }
+      } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit !== leadSuit) {
+        winningCard = c; winnerId = entry.playerId;
+      }
+      // карта не в масти хода и не козырь - никогда не выигрывает
     }
-    // карта не в масти хода и не козырь - никогда не выигрывает
   }
 
-  const winner = room.players.find((p) => p.id === winnerEntry.playerId);
-  const trickPoints = room.trick.reduce((sum, e) => sum + POINTS[e.card.rank], 0);
+  const trickPoints = room.trick.reduce(
+    (sum, e) => sum + e.cards.reduce((s, c) => s + POINTS[c.rank], 0), 0,
+  );
+  const winner = room.players.find((p) => p.id === winnerId);
   winner.score += trickPoints;
   room.log.push(`${winner.name} забирает взятку (+${trickPoints} очк.)`);
 
-  // Добор карт, начиная с победителя
-  const winnerIdx = room.players.findIndex((p) => p.id === winner.id);
+  return { winnerId, winnerName: winner.name, trickPoints, trick: room.trick };
+}
+
+// Вызывается после паузы на клиентскую анимацию: добор карт, очистка стола, проверка победы
+function finalizeTrick(room, winnerId) {
+  const winnerIdx = room.players.findIndex((p) => p.id === winnerId);
   for (let i = 0; i < room.players.length; i++) {
     const idx = (winnerIdx + i) % room.players.length;
     const p = room.players[idx];
-    if (room.deck.length > 0) {
+    while (p.hand.length < HAND_SIZE && room.deck.length > 0) {
       p.hand.push(room.deck.pop());
     }
   }
@@ -139,15 +182,13 @@ function resolveTrick(room) {
   room.trick = [];
   room.leadIndex = winnerIdx;
   room.turnIndex = winnerIdx;
+  room.phase = 'playing';
 
-  // Проверка мгновенной победы (набрал 31+ очко)
   const buraWinner = room.players.find((p) => p.score >= WIN_SCORE);
   if (buraWinner) {
     endRound(room, buraWinner, true);
     return;
   }
-
-  // Проверка конца раздачи (у всех пустые руки)
   if (room.players.every((p) => p.hand.length === 0)) {
     const best = room.players.reduce((a, b) => (b.score > a.score ? b : a));
     endRound(room, best, false);
@@ -158,7 +199,7 @@ function endRound(room, winner, isBura) {
   winner.roundsWon += 1;
   room.phase = 'round_end';
   room.log.push(
-    isBura ? `🔥 БУРА! ${winner.name} побеждает в раздаче с ${winner.score} очками!` : `Раздача окончена. ${winner.name} побеждает с ${winner.score} очками.`
+    isBura ? `🔥 БУРА! ${winner.name} побеждает в раздаче с ${winner.score} очками!` : `Раздача окончена. ${winner.name} побеждает с ${winner.score} очками.`,
   );
   room.lastWinnerName = winner.name;
   room.lastWinnerIsBura = isBura;
@@ -175,7 +216,7 @@ function publicStateFor(room, forPlayerId) {
     trick: room.trick,
     turnPlayerId: room.players[room.turnIndex] ? room.players[room.turnIndex].id : null,
     deckCount: room.deck.length,
-    log: room.log.slice(-8),
+    log: room.log.slice(-14),
     lastWinnerName: room.lastWinnerName,
     lastWinnerIsBura: room.lastWinnerIsBura,
     players: room.players.map((p) => ({
@@ -192,5 +233,6 @@ function publicStateFor(room, forPlayerId) {
 
 module.exports = {
   SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE,
-  createRoom, addPlayer, findPlayerByToken, startRound, isValidPlay, playCard, publicStateFor, cardId,
+  createRoom, addPlayer, findPlayerByToken, kickPlayer, startRound,
+  isValidSubmission, playCards, finalizeTrick, publicStateFor, cardId,
 };

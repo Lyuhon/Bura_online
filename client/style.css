@@ -84,8 +84,17 @@ input::placeholder { color: #7f9c8f; }
 }
 
 .lobby-players { list-style: none; padding: 0; margin: 0; }
-.lobby-players li { padding: 8px 10px; background: rgba(0,0,0,0.2); border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.lobby-players li { padding: 8px 10px; background: rgba(0,0,0,0.2); border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
 .lobby-players li .host-tag { color: var(--gold); font-size: 0.75rem; }
+.kick-btn {
+  background: transparent;
+  border: 1px solid rgba(179,38,30,0.6);
+  color: #ff8a80;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+}
 
 .table { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
 
@@ -116,7 +125,7 @@ input::placeholder { color: #7f9c8f; }
 
 .scoreboard { display: flex; justify-content: space-around; font-size: 0.85rem; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 6px; }
 
-.log { font-size: 0.75rem; color: #92b1a2; max-height: 60px; overflow-y: auto; background: rgba(0,0,0,0.1); border-radius: 6px; padding: 4px 8px; }
+.log { font-size: 0.75rem; color: #92b1a2; max-height: 140px; overflow-y: auto; background: rgba(0,0,0,0.1); border-radius: 6px; padding: 4px 8px; }
 .log div { padding: 1px 0; }
 
 .my-hand { display: flex; justify-content: center; gap: 8px; margin-top: auto; padding-top: 10px; flex-wrap: wrap; }
@@ -142,8 +151,35 @@ input::placeholder { color: #7f9c8f; }
 .card.small { width: 40px; height: 56px; font-size: 0.85rem; }
 .card.red { color: var(--red); }
 .card.disabled { opacity: 0.4; cursor: default; }
+.card.selected { transform: translateY(-10px); box-shadow: 0 0 0 3px var(--gold), 0 4px 8px rgba(0,0,0,0.5); }
 .card:active:not(.disabled) { transform: translateY(-6px); }
 .card .suit { font-size: 1.4rem; margin-top: 2px; }
+
+@keyframes card-pop-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.85); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.card-enter { animation: card-pop-in 0.22s ease-out; }
+
+.trick-group { text-align: center; }
+.trick-group-label { font-size: 0.7rem; color: #b9d4c6; margin-bottom: 2px; }
+.trick-group-cards { display: flex; gap: 4px; justify-content: center; }
+.trick-group.winner-group .trick-group-cards .card {
+  box-shadow: 0 0 0 3px var(--gold), 0 0 14px rgba(212,175,55,0.7);
+}
+.trick-group.winner-group .trick-group-label { color: var(--gold); font-weight: bold; }
+
+.trick-banner {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--gold);
+  min-height: 1.4em;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.trick-banner.show { opacity: 1; }
+
+#multi-hint { margin-top: 2px; }
 
 @media (max-width: 380px) {
   .card { width: 46px; height: 66px; font-size: 0.95rem; }

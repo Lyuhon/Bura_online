@@ -102,10 +102,10 @@ function startRound(room) {
   room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
   for (const p of room.players) {
     p.hand = [];
-    for (let i = 0; i < HAND_SIZE; i++) p.hand.push(room.deck.pop());
     p.score = 0;
     p.penaltyDelta = 0;
   }
+  dealRoundRobin(room, room.players, HAND_SIZE);
   room.trumpCard = room.deck.pop();
   room.trumpSuit = room.trumpCard.suit;
   room.deck.unshift(room.trumpCard);
@@ -119,6 +119,22 @@ function startRound(room) {
 
 function currentPlayer(room) {
   return room.players[room.turnIndex];
+}
+
+// Раздаёт карты ПО КРУГУ (по одной каждому за проход), пока у всех не будет
+// targetSize карт или не кончится колода - так конец колоды делится честно
+// между игроками, а не достаётся почти целиком одному.
+function dealRoundRobin(room, players, targetSize) {
+  let dealt = true;
+  while (dealt && room.deck.length > 0) {
+    dealt = false;
+    for (const p of players) {
+      if (p.hand.length < targetSize && room.deck.length > 0) {
+        p.hand.push(room.deck.pop());
+        dealt = true;
+      }
+    }
+  }
 }
 
 // Сколько игроков реально участвует в текущей взятке (у кого были карты на её
@@ -298,13 +314,13 @@ function resolveTrickWinner(room) {
 
 function finalizeTrick(room, winnerId) {
   const winnerIdx = room.players.findIndex((p) => p.id === winnerId);
+  // добор начинается с победителя взятки, но идёт по кругу по одной карте -
+  // честно делит "хвост" колоды, если она вот-вот закончится
+  const drawOrder = [];
   for (let i = 0; i < room.players.length; i++) {
-    const idx = (winnerIdx + i) % room.players.length;
-    const p = room.players[idx];
-    while (p.hand.length < HAND_SIZE && room.deck.length > 0) {
-      p.hand.push(room.deck.pop());
-    }
+    drawOrder.push(room.players[(winnerIdx + i) % room.players.length]);
   }
+  dealRoundRobin(room, drawOrder, HAND_SIZE);
 
   room.trick = [];
   room.phase = 'playing';

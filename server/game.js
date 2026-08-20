@@ -97,6 +97,46 @@ function renamePlayer(room, targetPlayerId, newName) {
   return true;
 }
 
+// Игрок сам решил выйти из партии (не хост его убрал). В лобби - просто убираем.
+// В процессе игры - переводим в "выбывшие" (без штрафа), чиним индекс хода/лидера
+// под новый (уменьшенный) состав и уменьшаем размер текущей взятки, если она
+// ещё не завершена, чтобы игра не ждала карту от того, кого уже нет за столом.
+function leaveGame(room, playerId) {
+  const idx = room.players.findIndex((p) => p.id === playerId);
+  if (idx === -1) return false;
+
+  const wasTurnPlayerId = room.players[room.turnIndex] ? room.players[room.turnIndex].id : null;
+  const wasLeadPlayerId = room.players[room.leadIndex] ? room.players[room.leadIndex].id : null;
+
+  const [removed] = room.players.splice(idx, 1);
+  removed.hand = [];
+  room.eliminated.push(removed);
+
+  if (room.players.length === 0) {
+    room.turnIndex = 0;
+    room.leadIndex = 0;
+    return { left: true, trickResult: null };
+  }
+
+  const newTurnIdx = room.players.findIndex((p) => p.id === wasTurnPlayerId);
+  room.turnIndex = newTurnIdx !== -1 ? newTurnIdx : 0;
+  const newLeadIdx = room.players.findIndex((p) => p.id === wasLeadPlayerId);
+  room.leadIndex = newLeadIdx !== -1 ? newLeadIdx : 0;
+
+  if (room.phase === 'playing' || room.phase === 'resolving') {
+    if (room.trickSize > 0) room.trickSize = Math.max(0, room.trickSize - 1);
+    if (room.players[room.turnIndex] && room.players[room.turnIndex].hand.length === 0) {
+      room.turnIndex = nextIndexWithCards(room, room.turnIndex);
+    }
+    // если после ухода игрока взятка уже фактически укомплектована оставшимися - разрешаем её сразу же
+    if (room.trick.length > 0 && room.trick.length >= room.trickSize) {
+      const trickResult = resolveTrickWinner(room);
+      return { left: true, trickResult };
+    }
+  }
+  return { left: true, trickResult: null };
+}
+
 function startRound(room) {
   room.deck = shuffle(createDeck());
   room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
@@ -304,7 +344,14 @@ function playCards(room, playerId, cards) {
 
 function resolveTrickWinner(room) {
   const holder = currentHolderEntry(room);
-  const winner = room.players.find((p) => p.id === holder.playerId);
+  const winner = room.players.find((p) => p.id === holder.playerId)
+    || room.eliminated.find((p) => p.id === holder.playerId);
+  if (!winner) {
+    // редкий случай: держатель взятки успел выйти из игры до её разрешения -
+    // очки просто пропадают, стол очищается как обычно
+    room.log.push('Взятка осталась без хозяина (игрок вышел) - очки не засчитаны');
+    return { winnerId: null, winnerName: '—', trickPoints: 0, trick: room.trick, winningCombo: holder.cards };
+  }
 
   const trickPoints = room.trick.reduce(
     (sum, e) => sum + e.cards.reduce((s, c) => s + POINTS[c.rank], 0), 0,
@@ -318,7 +365,9 @@ function resolveTrickWinner(room) {
 }
 
 function finalizeTrick(room, winnerId) {
-  const winnerIdx = room.players.findIndex((p) => p.id === winnerId);
+  if (room.players.length === 0) { room.trick = []; return; }
+  let winnerIdx = room.players.findIndex((p) => p.id === winnerId);
+  if (winnerIdx === -1) winnerIdx = room.leadIndex < room.players.length ? room.leadIndex : 0;
   // добор начинается с победителя взятки, но идёт по кругу по одной карте -
   // честно делит "хвост" колоды, если она вот-вот закончится
   const drawOrder = [];
@@ -330,14 +379,9 @@ function finalizeTrick(room, winnerId) {
   room.trick = [];
   room.phase = 'playing';
 
-  const buraWinner = room.players.find((p) => p.score >= WIN_SCORE);
-  if (buraWinner) {
-    endRound(room, buraWinner, true);
-    return;
-  }
   if (room.players.every((p) => p.hand.length === 0)) {
     const best = room.players.reduce((a, b) => (b.score > a.score ? b : a));
-    endRound(room, best, false);
+    endRound(room, best);
     return;
   }
 
@@ -379,14 +423,11 @@ function applyEliminationPenalties(room, roundWinnerId) {
   }
 }
 
-function endRound(room, winner, isBura) {
+function endRound(room, winner) {
   winner.roundsWon += 1;
   room.phase = 'round_end';
-  room.log.push(
-    isBura ? `🔥 БУРА! ${winner.name} побеждает в раздаче с ${winner.score} очками!` : `Раздача окончена. ${winner.name} побеждает с ${winner.score} очками.`,
-  );
+  room.log.push(`Раздача окончена (колода закончилась). ${winner.name} побеждает с ${winner.score} очками.`);
   room.lastWinnerName = winner.name;
-  room.lastWinnerIsBura = isBura;
   applyEliminationPenalties(room, winner.id);
 }
 
@@ -407,7 +448,6 @@ function publicStateFor(room, forPlayerId) {
     deckCount: room.deck.length,
     log: room.log.slice(-14),
     lastWinnerName: room.lastWinnerName,
-    lastWinnerIsBura: room.lastWinnerIsBura,
     overallWinnerName: room.overallWinnerName,
     eliminationLimit: ELIMINATION_LIMIT,
     eliminated: room.eliminated.map((p) => ({ name: p.name, penalty: p.penalty })),
@@ -443,13 +483,12 @@ function resetToLobby(room) {
   room.trumpSuit = null;
   room.log = [];
   room.lastWinnerName = null;
-  room.lastWinnerIsBura = null;
   room.overallWinnerName = null;
   room.dealerIndex = -1;
 }
 
 module.exports = {
   SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE, ELIMINATION_LIMIT,
-  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, resetToLobby, startRound,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, leaveGame, resetToLobby, startRound,
   isValidSubmission, playCards, finalizeTrick, chooseBotMove, currentHolderEntry, beatsCard, publicStateFor, cardId,
 };

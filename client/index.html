@@ -8,8 +8,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
+<script src="config.js"></script>
 </head>
 <body>
+
+<div id="reconnect-banner" class="reconnect-banner hidden">
+  ⚠️ Соединение потеряно
+  <button id="btn-reconnect">🔄 Переподключиться</button>
+</div>
 
 <div id="screen-connect" class="screen">
   <div class="brand">
@@ -55,6 +61,7 @@
       <div class="trump" id="trump-display"></div>
       <div class="deck-count" id="deck-count"></div>
       <div class="room-tag" id="room-tag"></div>
+      <button id="btn-leave-game" class="leave-btn">Выйти</button>
     </div>
 
     <div class="table-scroll">

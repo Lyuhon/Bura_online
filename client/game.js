@@ -53,7 +53,7 @@ function cardEl(card, opts = {}) {
 }
 
 // --- подключение ---
-const savedUrl = localStorage.getItem('bura_server_url') || '';
+const savedUrl = localStorage.getItem('bura_server_url') || (window.BURA_DEFAULT_SERVER || '');
 const savedName = localStorage.getItem('bura_name') || '';
 document.getElementById('server-url').value = savedUrl;
 document.getElementById('player-name').value = savedName;
@@ -69,6 +69,7 @@ function connectSocket(url) {
 
   s.on('connect', () => {
     myId = s.id;
+    document.getElementById('reconnect-banner').classList.add('hidden');
     const savedRoom = localStorage.getItem('bura_room_code');
     if (savedRoom) s.emit('resume_session', { token: myToken });
     // Подтягиваем метку сборки сервера, чтобы видеть, какая версия реально задеплоена
@@ -90,6 +91,10 @@ function connectSocket(url) {
 
   s.on('room_update', onRoomUpdate);
   s.on('trick_result', onTrickResult);
+
+  s.on('disconnect', () => {
+    document.getElementById('reconnect-banner').classList.remove('hidden');
+  });
 
   s.on('kicked', () => {
     localStorage.removeItem('bura_room_code');
@@ -154,6 +159,22 @@ document.getElementById('btn-add-bot').addEventListener('click', () => socket.em
 document.getElementById('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
 document.getElementById('btn-return-lobby').addEventListener('click', () => socket.emit('return_to_lobby'));
 
+document.getElementById('btn-reconnect').addEventListener('click', () => {
+  if (socket) {
+    socket.connect();
+  } else {
+    tryAutoResume();
+  }
+});
+
+document.getElementById('btn-leave-game').addEventListener('click', () => {
+  if (!confirm('Точно выйти из игры? Обратно вернуться будет нельзя.')) return;
+  if (socket) socket.emit('leave_game');
+  localStorage.removeItem('bura_room_code');
+  if (socket) socket.disconnect();
+  showScreen('connect');
+});
+
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!lastState) return;
   const me = lastState.players.find((p) => p.id === myId);
@@ -171,6 +192,12 @@ function onRoomUpdate(state) {
   document.getElementById('btn-create').disabled = false;
   document.getElementById('btn-join').disabled = false;
   localStorage.setItem('bura_room_code', state.code);
+
+  // Синхронизируем своё имя из состояния сервера (а не только из поля ввода) -
+  // иначе после автопереподключения myName оставался пустым и ломал проверку
+  // "хост с ником lyuhon может переименовывать"
+  const me = state.players.find((p) => p.id === myId);
+  if (me) myName = me.name;
 
   if (state.turnPlayerId !== myId) selectedCardIds.clear();
 
@@ -383,13 +410,15 @@ function renderGame(state) {
   if (state.phase === 'playing') {
     const trickArea = document.getElementById('trick-area');
     trickArea.innerHTML = '';
+    const showLeaderMark = state.trick.length > 1; // при одной комбинации подсвечивать нечего - она одна
     state.trick.forEach((entry) => {
       const p = state.players.find((pl) => pl.id === entry.playerId);
+      const isLeading = showLeaderMark && entry.playerId === state.currentLeaderId;
       const wrap = document.createElement('div');
-      wrap.className = 'trick-group' + (entry.playerId === state.currentLeaderId ? ' currently-winning' : '');
+      wrap.className = 'trick-group' + (isLeading ? ' currently-winning' : '');
       const label = document.createElement('div');
       label.className = 'trick-group-label';
-      label.textContent = (p ? p.name : '') + (entry.playerId === state.currentLeaderId ? ' 👑' : '');
+      label.textContent = (p ? p.name : '') + (isLeading ? ' 👑' : '');
       wrap.appendChild(label);
       const cardsWrap = document.createElement('div');
       cardsWrap.className = 'trick-group-cards';
@@ -472,7 +501,7 @@ function renderRoundEnd(state) {
     title.textContent = `🏆 Игра окончена! Победитель: ${state.overallWinnerName}`;
     title.classList.add('game-over-title');
   } else {
-    title.textContent = state.lastWinnerIsBura ? `🔥 БУРА! Победил(а) ${state.lastWinnerName}` : `Раздача окончена. Победил(а) ${state.lastWinnerName}`;
+    title.textContent = `Раздача окончена (колода закончилась). Победил(а) ${state.lastWinnerName}`;
     title.classList.remove('game-over-title');
   }
 

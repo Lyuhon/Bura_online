@@ -179,6 +179,7 @@ input::placeholder { color: #6d7d73; }
   display: flex; justify-content: space-between; align-items: center;
   font-size: 0.85rem; color: var(--ivory-dim);
   padding-bottom: 8px; margin-bottom: 6px;
+  gap: 6px; flex-wrap: wrap;
   border-bottom: 1px solid rgba(184,147,74,0.25);
   flex-shrink: 0;
 }
@@ -353,3 +354,39 @@ input::placeholder { color: #6d7d73; }
 .penalty-row.warn { color: #ff9a8a; }
 .eliminated-list { font-size: 0.8rem; color: var(--ivory-dim); margin-top: 10px; opacity: 0.8; }
 .game-over-title { color: var(--brass-bright); }
+
+.leave-btn {
+  background: transparent;
+  border: 1px solid rgba(168,51,43,0.5);
+  color: #ff9a8a;
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: var(--font-body);
+}
+
+.reconnect-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 50;
+  background: #7a2b22;
+  color: #ffe9e4;
+  text-align: center;
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.reconnect-banner button {
+  background: var(--brass-bright);
+  color: var(--ink);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+}

@@ -3,7 +3,7 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const {
-  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, resetToLobby, startRound,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, leaveGame, resetToLobby, startRound,
   isValidSubmission, playCards, finalizeTrick, chooseBotMove, publicStateFor,
 } = require('./game');
 
@@ -68,26 +68,29 @@ function afterStateChange(room) {
   maybeScheduleBot(room);
 }
 
+function handleTrickResult(room, result) {
+  room.phase = 'resolving';
+  io.to(room.code).emit('trick_result', {
+    trick: result.trick,
+    winnerId: result.winnerId,
+    winnerName: result.winnerName,
+    trickPoints: result.trickPoints,
+    winningCombo: result.winningCombo,
+  });
+  setTimeout(() => {
+    finalizeTrick(room, result.winnerId);
+    if (room.phase === 'round_end' || room.phase === 'game_over') {
+      setTimeout(() => afterStateChange(room), ROUND_END_PAUSE_MS);
+    } else {
+      afterStateChange(room);
+    }
+  }, TRICK_PAUSE_MS);
+}
+
 function processTurn(room, playerId, cards) {
   const result = playCards(room, playerId, cards);
-
   if (result) {
-    room.phase = 'resolving';
-    io.to(room.code).emit('trick_result', {
-      trick: result.trick,
-      winnerId: result.winnerId,
-      winnerName: result.winnerName,
-      trickPoints: result.trickPoints,
-      winningCombo: result.winningCombo,
-    });
-    setTimeout(() => {
-      finalizeTrick(room, result.winnerId);
-      if (room.phase === 'round_end' || room.phase === 'game_over') {
-        setTimeout(() => afterStateChange(room), ROUND_END_PAUSE_MS);
-      } else {
-        afterStateChange(room);
-      }
-    }, TRICK_PAUSE_MS);
+    handleTrickResult(room, result);
   } else {
     afterStateChange(room);
   }
@@ -198,6 +201,31 @@ io.on('connection', (socket) => {
       kickedSocket.data.token = null;
     }
     broadcastRoom(room);
+  });
+
+  // Игрок сам решил выйти из партии (не хост его убрал)
+  socket.on('leave_game', () => {
+    const room = rooms[socket.data.roomCode];
+    if (!room) return;
+    const player = room.players.find((p) => p.id === socket.id);
+    if (!player) return;
+
+    let trickHandled = false;
+    if (room.phase === 'lobby') {
+      kickPlayer(room, socket.id);
+    } else {
+      const outcome = leaveGame(room, socket.id);
+      if (outcome && outcome.trickResult) {
+        handleTrickResult(room, outcome.trickResult);
+        trickHandled = true;
+      }
+    }
+
+    delete tokenToRoom[socket.data.token];
+    socket.leave(room.code);
+    socket.data.roomCode = null;
+    socket.data.token = null;
+    if (!trickHandled) broadcastRoom(room);
   });
 
   socket.on('rename_player', ({ playerId, newName }) => {

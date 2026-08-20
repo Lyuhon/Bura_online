@@ -78,6 +78,7 @@ function processTurn(room, playerId, cards) {
       winnerId: result.winnerId,
       winnerName: result.winnerName,
       trickPoints: result.trickPoints,
+      winningCombo: result.winningCombo,
     });
     setTimeout(() => {
       finalizeTrick(room, result.winnerId);

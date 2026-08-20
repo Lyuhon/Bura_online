@@ -295,10 +295,17 @@ input::placeholder { color: #6d7d73; }
 }
 .card-enter { animation: card-pop-in 0.22s ease-out; }
 
-.trick-group { text-align: center; }
+.trick-group { text-align: center; transition: transform 0.25s ease; }
 .trick-group-label { font-size: 0.7rem; color: var(--ivory-dim); margin-bottom: 2px; }
 .trick-group-cards { display: flex; gap: 4px; justify-content: center; }
 .trick-group.winner-group .trick-group-label { color: var(--brass-bright); font-weight: bold; }
+
+/* Живой маркер: чья комбинация сейчас лидирует в незавершённой взятке */
+.trick-group.currently-winning { transform: translateY(-8px); }
+.trick-group.currently-winning .trick-group-label { color: var(--brass-bright); font-weight: bold; }
+.trick-group.currently-winning .trick-group-cards .card {
+  box-shadow: 0 0 0 2px var(--brass-bright), 0 0 12px rgba(217,181,106,0.6);
+}
 .card.winner-card {
   box-shadow: 0 0 0 3px var(--brass-bright), 0 0 14px rgba(217,181,106,0.8);
   transform: translateY(-4px);
@@ -329,6 +336,17 @@ input::placeholder { color: #6d7d73; }
 
 @media (max-width: 380px) {
   .card { width: 44px; height: 64px; font-size: 0.92rem; }
+}
+
+.spectator-banner {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--brass-dim);
+  background: rgba(0,0,0,0.25);
+  border: 1px dashed rgba(184,147,74,0.4);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 6px 0;
 }
 
 .penalty-row { font-size: 0.78rem; color: var(--ivory-dim); margin-top: 2px; }

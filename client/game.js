@@ -186,11 +186,13 @@ function onRoomUpdate(state) {
   }
 }
 
-// Показывает завершённую взятку целиком, подсвечивает сильнейшую карту,
-// затем "разлетает" все карты к победителю - и только потом сервер чистит стол
-function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
+// Показывает завершённую взятку целиком, подсвечивает именно ту комбинацию,
+// которая победила (а не все карты игрока целиком), затем "разлетает" все карты
+// к победителю - и только потом сервер чистит стол
+function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo }) {
   const trickArea = document.getElementById('trick-area');
   trickArea.innerHTML = '';
+  const winningIds = new Set((winningCombo || []).map(cardId));
 
   trick.forEach((entry) => {
     const p = lastState ? lastState.players.find((pl) => pl.id === entry.playerId) : null;
@@ -202,7 +204,7 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints }) {
     wrap.appendChild(label);
     const cardsWrap = document.createElement('div');
     cardsWrap.className = 'trick-group-cards';
-    entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c, { animate: true, winnerCard: entry.playerId === winnerId })));
+    entry.cards.forEach((c) => cardsWrap.appendChild(cardEl(c, { animate: true, winnerCard: winningIds.has(cardId(c)) })));
     wrap.appendChild(cardsWrap);
     trickArea.appendChild(wrap);
   });
@@ -384,10 +386,10 @@ function renderGame(state) {
     state.trick.forEach((entry) => {
       const p = state.players.find((pl) => pl.id === entry.playerId);
       const wrap = document.createElement('div');
-      wrap.className = 'trick-group';
+      wrap.className = 'trick-group' + (entry.playerId === state.currentLeaderId ? ' currently-winning' : '');
       const label = document.createElement('div');
       label.className = 'trick-group-label';
-      label.textContent = p ? p.name : '';
+      label.textContent = (p ? p.name : '') + (entry.playerId === state.currentLeaderId ? ' 👑' : '');
       wrap.appendChild(label);
       const cardsWrap = document.createElement('div');
       cardsWrap.className = 'trick-group-cards';
@@ -429,6 +431,14 @@ function renderGame(state) {
   const hand = document.getElementById('my-hand');
   const me = state.players.find((p) => p.id === myId);
   const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+
+  // Меня уже нет среди активных игроков этой партии (вылетел по очкам вылета) -
+  // показываем баннер вместо попытки отрисовать несуществующую руку
+  const spectatorBanner = document.getElementById('spectator-banner');
+  const handDock = document.getElementById('hand-dock');
+  const iAmEliminated = !me;
+  spectatorBanner.classList.toggle('hidden', !iAmEliminated);
+  handDock.classList.toggle('hidden', iAmEliminated);
 
   if (me && me.hand) {
     const handKey = me.hand.map(cardId).sort().join(',');

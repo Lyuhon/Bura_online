@@ -161,39 +161,72 @@ function requiredCountFor(room, player) {
   return Math.min(leaderCount, player.hand.length);
 }
 
-// Сила карты для сравнения (используется и разрешением взятки, и ботами):
-// козырь всегда выше любой некозырной карты; в масти хода старшая карта бьёт младшую;
-// карта не в масти хода и не козырь никогда не выигрывает.
-function cardStrength(card, leadSuit, trumpSuit) {
+// Бьёт ли карта x карту y (учитывая козырь): козырь бьёт любую некозырную карту;
+// среди двух козырей побеждает старшая по рангу; среди двух карт одной
+// некозырной масти - старшая по рангу; иначе (разные некозырные масти) - никогда не бьёт.
+function beatsCard(x, y, trumpSuit) {
+  const xTrump = x.suit === trumpSuit;
+  const yTrump = y.suit === trumpSuit;
+  if (xTrump && !yTrump) return true;
+  if (xTrump && yTrump) return rankIndex(x.rank) > rankIndex(y.rank);
+  if (!xTrump && yTrump) return false;
+  if (x.suit !== y.suit) return false;
+  return rankIndex(x.rank) > rankIndex(y.rank);
+}
+
+// Кто сейчас "держит" взятку среди уже сыгранных заходов: каждый следующий заход
+// должен ПОЛНОСТЬЮ перебить текущего держателя карта-на-карту (позиция на позицию);
+// если хоть одна карта не перебивает - весь заход проваливается, держатель не меняется.
+function currentHolderEntry(room) {
+  if (room.trick.length === 0) return null;
+  let holder = room.trick[0];
+  for (let t = 1; t < room.trick.length; t++) {
+    const challenger = room.trick[t];
+    let covers = challenger.cards.length >= holder.cards.length;
+    if (covers) {
+      for (let i = 0; i < holder.cards.length; i++) {
+        if (!beatsCard(challenger.cards[i], holder.cards[i], room.trumpSuit)) { covers = false; break; }
+      }
+    }
+    if (covers) holder = challenger;
+  }
+  return holder;
+}
+
+// Сила карты относительно конкретной позиции - нужна боту, чтобы выбирать
+// САМУЮ ДЕШЁВУЮ карту, которой хватает для перебития (беречь сильные карты).
+function cardStrength(card, targetSuit, trumpSuit) {
   if (card.suit === trumpSuit) return 1000 + rankIndex(card.rank);
-  if (card.suit === leadSuit) return rankIndex(card.rank);
+  if (card.suit === targetSuit) return rankIndex(card.rank);
   return -1;
 }
 
-// Текущая "лучшая" карта во взятке ДО того как она укомплектована - нужно ботам,
-// чтобы решить, можно ли и стоит ли пытаться перебить текущего лидера.
-function currentBestCard(room) {
-  if (room.trick.length === 0) return null;
-  const leadSuit = room.trick[0].cards[0].suit;
-  let winningCard = null;
-  for (const entry of room.trick) {
-    for (const c of entry.cards) {
-      if (!winningCard) { winningCard = c; continue; }
-      const cIsTrump = c.suit === room.trumpSuit;
-      const wIsTrump = winningCard.suit === room.trumpSuit;
-      if (cIsTrump && !wIsTrump) winningCard = c;
-      else if (cIsTrump && wIsTrump) { if (rankIndex(c.rank) > rankIndex(winningCard.rank)) winningCard = c; }
-      else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit === leadSuit) { if (rankIndex(c.rank) > rankIndex(winningCard.rank)) winningCard = c; }
-      else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit !== leadSuit) winningCard = c;
+// Пытается жадно собрать из руки полный перебивающий комплект против текущего
+// держателя (по позициям). Если для какой-то позиции нет подходящей карты - null.
+function tryFullCover(hand, holderCards, trumpSuit) {
+  const pool = hand.slice();
+  const chosen = [];
+  for (let i = 0; i < holderCards.length; i++) {
+    let bestIdx = -1;
+    for (let j = 0; j < pool.length; j++) {
+      if (beatsCard(pool[j], holderCards[i], trumpSuit)) {
+        if (bestIdx === -1 || cardStrength(pool[j], holderCards[i].suit, trumpSuit) < cardStrength(pool[bestIdx], holderCards[i].suit, trumpSuit)) {
+          bestIdx = j;
+        }
+      }
     }
+    if (bestIdx === -1) return null;
+    chosen.push(pool[bestIdx]);
+    pool.splice(bestIdx, 1);
   }
-  return winningCard;
+  return chosen;
 }
 
 // Простая эвристика для бота: если открывает - сливает мусор (масть с наименьшей
-// суммой очков, не козырную по возможности); если отвечает - пытается перебить
-// текущего лидера самой ДЕШЁВОЙ подходящей картой (бережёт козыри, если ходит не
-// последним в этой взятке), а остальные обязательные карты добирает из мусора.
+// суммой очков, не козырную по возможности); если отвечает - пытается СОБРАТЬ
+// ПОЛНЫЙ перебивающий комплект против текущего держателя (если он последний в
+// очереди хода - перебивает всегда, когда может; иначе бережёт козыри и лезет
+// в бой только если может перебить чисто картами в масть без козыря).
 function chooseBotMove(room, player) {
   const isLeader = room.trick.length === 0;
 
@@ -213,28 +246,18 @@ function chooseBotMove(room, player) {
   }
 
   const required = requiredCountFor(room, player);
-  const leadSuit = room.trick[0].cards[0].suit;
-  const best = currentBestCard(room);
-  const bestStrength = cardStrength(best, leadSuit, room.trumpSuit);
-  const isLast = room.trick.length === room.players.length - 1;
-
+  const holder = currentHolderEntry(room);
+  const isLast = room.trick.length === room.trickSize - 1;
   const byPoints = [...player.hand].sort((a, b) => POINTS[a.rank] - POINTS[b.rank]);
-  const winners = player.hand
-    .filter((c) => cardStrength(c, leadSuit, room.trumpSuit) > bestStrength)
-    .sort((a, b) => cardStrength(a, leadSuit, room.trumpSuit) - cardStrength(b, leadSuit, room.trumpSuit));
 
-  let winCard = null;
-  if (isLast && winners.length) {
-    winCard = winners[0];
-  } else if (!isLast && winners.length) {
-    const nonTrumpWinners = winners.filter((c) => c.suit !== room.trumpSuit);
-    winCard = nonTrumpWinners.length ? nonTrumpWinners[0] : null;
+  let cover = null;
+  if (holder.cards.length === required) {
+    cover = tryFullCover(player.hand, holder.cards, room.trumpSuit);
+    const usesTrump = cover && cover.some((c) => c.suit === room.trumpSuit && holder.cards.every((h) => h.suit !== room.trumpSuit));
+    if (cover && !isLast && usesTrump) cover = null; // не последний - не палим козырь ради необязательной победы
   }
 
-  if (winCard) {
-    const rest = byPoints.filter((c) => cardId(c) !== cardId(winCard)).slice(0, required - 1);
-    return [winCard, ...rest];
-  }
+  if (cover) return cover;
   return byPoints.slice(0, required);
 }
 
@@ -280,36 +303,18 @@ function playCards(room, playerId, cards) {
 }
 
 function resolveTrickWinner(room) {
-  const leadSuit = room.trick[0].cards[0].suit;
-  let winningCard = null;
-  let winnerId = null;
-
-  for (const entry of room.trick) {
-    for (const c of entry.cards) {
-      if (!winningCard) { winningCard = c; winnerId = entry.playerId; continue; }
-      const cIsTrump = c.suit === room.trumpSuit;
-      const wIsTrump = winningCard.suit === room.trumpSuit;
-
-      if (cIsTrump && !wIsTrump) {
-        winningCard = c; winnerId = entry.playerId;
-      } else if (cIsTrump && wIsTrump) {
-        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = entry.playerId; }
-      } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit === leadSuit) {
-        if (rankIndex(c.rank) > rankIndex(winningCard.rank)) { winningCard = c; winnerId = entry.playerId; }
-      } else if (!cIsTrump && !wIsTrump && c.suit === leadSuit && winningCard.suit !== leadSuit) {
-        winningCard = c; winnerId = entry.playerId;
-      }
-    }
-  }
+  const holder = currentHolderEntry(room);
+  const winner = room.players.find((p) => p.id === holder.playerId);
 
   const trickPoints = room.trick.reduce(
     (sum, e) => sum + e.cards.reduce((s, c) => s + POINTS[c.rank], 0), 0,
   );
-  const winner = room.players.find((p) => p.id === winnerId);
   winner.score += trickPoints;
-  room.log.push(`${winner.name} забирает всю взятку (+${trickPoints} очк., сильнейшая карта ${winningCard.rank}${winningCard.suit})`);
 
-  return { winnerId, winnerName: winner.name, trickPoints, trick: room.trick, winningCard };
+  const comboText = holder.cards.map((c) => `${c.rank}${c.suit}`).join(', ');
+  room.log.push(`${winner.name} забирает всю взятку (+${trickPoints} очк., его комбинация [${comboText}] не была перебита)`);
+
+  return { winnerId: winner.id, winnerName: winner.name, trickPoints, trick: room.trick, winningCombo: holder.cards };
 }
 
 function finalizeTrick(room, winnerId) {
@@ -397,6 +402,7 @@ function publicStateFor(room, forPlayerId) {
     trumpCard: room.trumpCard,
     trick: room.trick,
     turnPlayerId: room.players[room.turnIndex] ? room.players[room.turnIndex].id : null,
+    currentLeaderId: room.trick.length > 0 ? currentHolderEntry(room).playerId : null,
     requiredCount: me ? requiredCountFor(room, me) : null,
     deckCount: room.deck.length,
     log: room.log.slice(-14),
@@ -445,5 +451,5 @@ function resetToLobby(room) {
 module.exports = {
   SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE, ELIMINATION_LIMIT,
   createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, resetToLobby, startRound,
-  isValidSubmission, playCards, finalizeTrick, chooseBotMove, publicStateFor, cardId,
+  isValidSubmission, playCards, finalizeTrick, chooseBotMove, currentHolderEntry, beatsCard, publicStateFor, cardId,
 };

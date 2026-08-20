@@ -3,13 +3,16 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const {
-  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, startRound,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, resetToLobby, startRound,
   isValidSubmission, playCards, finalizeTrick, chooseBotMove, publicStateFor,
 } = require('./game');
 
+// Метка сборки - помогает быстро понять, какая версия реально задеплоена на Railway
+const BUILD_TAG = new Date().toISOString();
+
 const app = express();
 app.use(cors());
-app.get('/', (req, res) => res.send('Bura server is running ✅'));
+app.get('/', (req, res) => res.send(`Bura server is running ✅ (build: ${BUILD_TAG})`));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -230,6 +233,16 @@ io.on('connection', (socket) => {
     if (room.phase === 'game_over') return;
     startRound(room);
     afterStateChange(room);
+  });
+
+  socket.on('return_to_lobby', () => {
+    const room = rooms[socket.data.roomCode];
+    if (!room) return;
+    const player = findPlayerByToken(room, socket.data.token);
+    if (!player || player.token !== room.hostToken) return;
+    if (room.phase !== 'round_end' && room.phase !== 'game_over') return;
+    resetToLobby(room);
+    broadcastRoom(room);
   });
 
   socket.on('play_card', ({ cards }) => {

@@ -82,9 +82,12 @@
     <h2 id="round-end-title"></h2>
     <div id="round-end-scores"></div>
     <button id="btn-next-round" class="btn btn-primary hidden">Следующая раздача</button>
+    <button id="btn-return-lobby" class="btn hidden">🏠 В лобби</button>
     <p class="hint" id="wait-host-hint">Ждём, пока хост начнёт следующую раздачу…</p>
   </div>
 </div>
+
+<div id="build-tag" style="position:fixed;bottom:2px;right:6px;font-size:0.6rem;color:rgba(237,230,214,0.35);z-index:1;"></div>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script src="game.js"></script>

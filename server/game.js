@@ -112,12 +112,31 @@ function startRound(room) {
   room.trick = [];
   room.leadIndex = (room.dealerIndex + 1) % room.players.length;
   room.turnIndex = room.leadIndex;
+  room.trickSize = room.players.length; // сразу после раздачи у всех есть карты
   room.phase = 'playing';
   room.log = [`Раздача карт. Козырь: ${room.trumpCard.rank}${room.trumpCard.suit}`];
 }
 
 function currentPlayer(room) {
   return room.players[room.turnIndex];
+}
+
+// Сколько игроков реально участвует в текущей взятке (у кого были карты на её
+// старте) - используется вместо room.players.length, т.к. под конец колоды
+// добор карт неравномерный и у кого-то рука может опустеть раньше других.
+function countPlayersWithCards(room) {
+  return room.players.filter((p) => p.hand.length > 0).length;
+}
+
+// Следующий игрок ПО КРУГУ, у которого есть карты - пропускает тех, у кого
+// рука уже пуста (иначе на них зависал бы весь стол).
+function nextIndexWithCards(room, fromIndex) {
+  const n = room.players.length;
+  for (let i = 1; i <= n; i++) {
+    const idx = (fromIndex + i) % n;
+    if (room.players[idx].hand.length > 0) return idx;
+  }
+  return fromIndex;
 }
 
 function requiredCountFor(room, player) {
@@ -237,10 +256,10 @@ function playCards(room, playerId, cards) {
   const cardsText = cards.map((c) => `${c.rank}${c.suit}`).join(', ');
   room.log.push(`${player.name} сходил: ${cardsText}`);
 
-  if (room.trick.length === room.players.length) {
+  if (room.trick.length === room.trickSize) {
     return resolveTrickWinner(room);
   }
-  room.turnIndex = (room.turnIndex + 1) % room.players.length;
+  room.turnIndex = nextIndexWithCards(room, room.turnIndex);
   return null;
 }
 
@@ -288,8 +307,6 @@ function finalizeTrick(room, winnerId) {
   }
 
   room.trick = [];
-  room.leadIndex = winnerIdx;
-  room.turnIndex = winnerIdx;
   room.phase = 'playing';
 
   const buraWinner = room.players.find((p) => p.score >= WIN_SCORE);
@@ -300,7 +317,17 @@ function finalizeTrick(room, winnerId) {
   if (room.players.every((p) => p.hand.length === 0)) {
     const best = room.players.reduce((a, b) => (b.score > a.score ? b : a));
     endRound(room, best, false);
+    return;
   }
+
+  // Следующим ходит победитель взятки - если у него вдруг нет карт (редкий
+  // случай на исходе колоды), передаём ход дальше по кругу первому, у кого они есть
+  const nextLeaderIdx = room.players[winnerIdx].hand.length > 0
+    ? winnerIdx
+    : nextIndexWithCards(room, winnerIdx);
+  room.leadIndex = nextLeaderIdx;
+  room.turnIndex = nextLeaderIdx;
+  room.trickSize = countPlayersWithCards(room);
 }
 
 function applyEliminationPenalties(room, roundWinnerId) {
@@ -377,8 +404,30 @@ function publicStateFor(room, forPlayerId) {
   };
 }
 
+function resetToLobby(room) {
+  // возвращаем всех выбывших обратно в состав, обнуляем очки/штрафы
+  room.players = room.players.concat(room.eliminated);
+  room.eliminated = [];
+  for (const p of room.players) {
+    p.score = 0;
+    p.roundsWon = 0;
+    p.penalty = 0;
+    p.penaltyDelta = 0;
+    p.hand = [];
+  }
+  room.phase = 'lobby';
+  room.trick = [];
+  room.trumpCard = null;
+  room.trumpSuit = null;
+  room.log = [];
+  room.lastWinnerName = null;
+  room.lastWinnerIsBura = null;
+  room.overallWinnerName = null;
+  room.dealerIndex = -1;
+}
+
 module.exports = {
   SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE, ELIMINATION_LIMIT,
-  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, startRound,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, resetToLobby, startRound,
   isValidSubmission, playCards, finalizeTrick, chooseBotMove, publicStateFor, cardId,
 };

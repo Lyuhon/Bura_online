@@ -71,6 +71,11 @@ function connectSocket(url) {
     myId = s.id;
     const savedRoom = localStorage.getItem('bura_room_code');
     if (savedRoom) s.emit('resume_session', { token: myToken });
+    // Подтягиваем метку сборки сервера, чтобы видеть, какая версия реально задеплоена
+    fetch(url + '/').then((r) => r.text()).then((t) => {
+      const m = t.match(/build:\s*([^)]+)\)/);
+      document.getElementById('build-tag').textContent = m ? `сервер: ${m[1]}` : '';
+    }).catch(() => {});
   });
 
   s.on('error_msg', (msg) => {
@@ -147,6 +152,7 @@ document.getElementById('btn-join').addEventListener('click', () => {
 document.getElementById('btn-start').addEventListener('click', () => socket.emit('start_game'));
 document.getElementById('btn-add-bot').addEventListener('click', () => socket.emit('add_bot'));
 document.getElementById('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
+document.getElementById('btn-return-lobby').addEventListener('click', () => socket.emit('return_to_lobby'));
 
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!lastState) return;
@@ -505,6 +511,7 @@ function renderRoundEnd(state) {
 
   document.getElementById('btn-next-round').classList.toggle('hidden', !isHost || isGameOver);
   document.getElementById('wait-host-hint').classList.toggle('hidden', isHost || isGameOver);
+  document.getElementById('btn-return-lobby').classList.toggle('hidden', !isHost);
 }
 
 tryAutoResume();

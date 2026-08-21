@@ -184,20 +184,26 @@ input::placeholder { color: #6d7d73; }
   flex-shrink: 0;
 }
 .trump { font-size: 1rem; display: flex; align-items: center; gap: 4px; }
-.trump-wrap { position: relative; display: inline-flex; }
+.trump-wrap { position: relative; display: inline-flex; align-items: flex-end; gap: 5px; }
 .deck-badge {
-  position: absolute;
-  top: -9px;
-  right: -18px;
   background: linear-gradient(180deg, var(--brass-bright), var(--brass));
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 999px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   white-space: nowrap;
+  align-self: center;
+}
+
+.topbar-logo {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.15em;
+  color: var(--brass-dim);
+  opacity: 0.7;
 }
 
 .table-scroll {
@@ -284,6 +290,8 @@ input::placeholder { color: #6d7d73; }
   transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 .card.small { width: 38px; height: 54px; font-size: 0.8rem; }
+.card.tiny { width: 28px; height: 40px; font-size: 0.62rem; border-radius: 4px; }
+.card.tiny .suit { font-size: 0.7rem; }
 .card.red { color: var(--card-red); }
 .card.disabled { opacity: 0.42; cursor: default; }
 .card.selected { transform: translateY(-10px); box-shadow: 0 0 0 3px var(--brass-bright), 0 4px 10px rgba(0,0,0,0.5); }
@@ -419,4 +427,54 @@ input::placeholder { color: #6d7d73; }
   color: var(--ink);
   font-weight: 800;
   border: none;
+}
+
+/* --- bottom sheet (красивое подтверждение вместо браузерного confirm) --- */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 90;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.sheet-overlay.show { opacity: 1; }
+
+.bottom-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 91;
+  background: linear-gradient(180deg, #1a1006, #100a05);
+  border-top: 1px solid var(--brass-dim);
+  border-radius: 18px 18px 0 0;
+  padding: 10px 20px max(20px, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.6);
+  transform: translateY(100%);
+  transition: transform 0.32s cubic-bezier(.2,.9,.3,1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.bottom-sheet.show { transform: translateY(0); }
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: rgba(184,147,74,0.4);
+  border-radius: 999px;
+  margin: 4px auto 6px;
+}
+.sheet-message {
+  text-align: center;
+  color: var(--ivory);
+  font-size: 0.95rem;
+  margin: 0 0 6px;
+}
+.sheet-danger-btn {
+  background: linear-gradient(180deg, #d1483c, #a8332b);
+  color: #fff;
+  border: none;
+  font-weight: 700;
 }

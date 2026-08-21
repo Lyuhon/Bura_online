@@ -38,6 +38,7 @@ function cardEl(card, opts = {}) {
     + (opts.animate ? ' card-enter' : '')
     + (RED_SUITS.includes(card.suit) ? ' red' : '')
     + (opts.small ? ' small' : '')
+    + (opts.tiny ? ' tiny' : '')
     + (opts.disabled ? ' disabled' : '')
     + (opts.selected ? ' selected' : '')
     + (opts.winnerCard ? ' winner-card' : '');
@@ -170,12 +171,45 @@ document.getElementById('btn-reconnect').addEventListener('click', () => {
   }
 });
 
+// Универсальный красивый bottom sheet вместо стандартного браузерного confirm()
+function showConfirmSheet(message, onConfirm) {
+  const overlay = document.getElementById('sheet-overlay');
+  const sheet = document.getElementById('confirm-sheet');
+  document.getElementById('sheet-message').textContent = message;
+
+  overlay.classList.remove('hidden');
+  sheet.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    overlay.classList.add('show');
+    sheet.classList.add('show');
+  });
+
+  function close() {
+    overlay.classList.remove('show');
+    sheet.classList.remove('show');
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      sheet.classList.add('hidden');
+    }, 300);
+    confirmBtn.onclick = null;
+    cancelBtn.onclick = null;
+    overlay.onclick = null;
+  }
+
+  const confirmBtn = document.getElementById('sheet-confirm-btn');
+  const cancelBtn = document.getElementById('sheet-cancel-btn');
+  confirmBtn.onclick = () => { close(); onConfirm(); };
+  cancelBtn.onclick = close;
+  overlay.onclick = close;
+}
+
 document.getElementById('btn-leave-game').addEventListener('click', () => {
-  if (!confirm('Точно выйти из игры? Обратно вернуться будет нельзя.')) return;
-  if (socket) socket.emit('leave_game');
-  localStorage.removeItem('bura_room_code');
-  if (socket) socket.disconnect();
-  showScreen('connect');
+  showConfirmSheet('Точно выйти из игры? Обратно вернуться будет нельзя.', () => {
+    if (socket) socket.emit('leave_game');
+    localStorage.removeItem('bura_room_code');
+    if (socket) socket.disconnect();
+    showScreen('connect');
+  });
 });
 
 document.getElementById('btn-end-turn').addEventListener('click', () => {
@@ -414,11 +448,11 @@ function onHandCardClick(id, card) {
 }
 
 function renderGame(state) {
-  document.getElementById('deck-count').textContent = `🂠 ${state.deckCount}`;
+  document.getElementById('deck-count').textContent = `${state.deckCount}`;
 
   const trumpDiv = document.getElementById('trump-display');
   trumpDiv.innerHTML = '';
-  if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { small: true }));
+  if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { tiny: true }));
 
   const opp = document.getElementById('opponents');
   opp.innerHTML = '';

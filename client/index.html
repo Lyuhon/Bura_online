@@ -17,6 +17,14 @@
   <button id="btn-reconnect">🔄 Переподключиться</button>
 </div>
 
+<div id="sheet-overlay" class="sheet-overlay hidden"></div>
+<div id="confirm-sheet" class="bottom-sheet hidden">
+  <div class="sheet-handle"></div>
+  <p class="sheet-message" id="sheet-message"></p>
+  <button id="sheet-confirm-btn" class="btn sheet-danger-btn">Да, выйти</button>
+  <button id="sheet-cancel-btn" class="btn">Отмена</button>
+</div>
+
 <div id="screen-connect" class="screen">
   <div class="brand">
     <span class="brand-suit">♠</span>
@@ -72,6 +80,7 @@
         <div class="trump" id="trump-display"></div>
         <div class="deck-badge" id="deck-count"></div>
       </div>
+      <div class="topbar-logo">БУРА</div>
       <button id="btn-leave-game" class="leave-icon-btn" aria-label="Выйти из игры" title="Выйти из игры">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>

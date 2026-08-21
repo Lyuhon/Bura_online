@@ -254,8 +254,7 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo 
     if (winnerId === myId) {
       targetEl = document.getElementById('my-hand');
     } else {
-      targetEl = Array.from(document.querySelectorAll('.opponent'))
-        .find((el) => el.querySelector('.name') && el.querySelector('.name').textContent.startsWith(winnerName));
+      targetEl = document.querySelector(`.opponent[data-player-id="${winnerId}"]`);
     }
 
     setTimeout(() => {
@@ -417,6 +416,7 @@ function renderGame(state) {
   state.players.filter((p) => p.id !== myId).forEach((p) => {
     const div = document.createElement('div');
     div.className = 'opponent' + (p.id === state.turnPlayerId ? ' active' : '');
+    div.dataset.playerId = p.id;
     div.innerHTML = `<div class="name">${p.isBot ? '🤖 ' : ''}${p.name}${!p.isBot && !p.connected ? ' 💤' : ''}</div>
       <div class="meta">Очки: ${p.score} · побед: ${p.roundsWon}</div>
       <div class="penalty-bar">Вылет: ${p.penalty}/${state.eliminationLimit}</div>

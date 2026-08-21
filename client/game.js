@@ -73,13 +73,13 @@ document.querySelectorAll('.avatar-opt').forEach((btn) => {
   });
 });
 
-// Дефолтная иконка (silhouette), когда аватар не выбран
-const DEFAULT_AVATAR_SVG = '<svg viewBox="0 0 24 24" width="60%" height="60%" fill="currentColor"><path d="M12 12c2.7 0 4.9-2.2 4.9-4.9S14.7 2.2 12 2.2 7.1 4.4 7.1 7.1 9.3 12 12 12zm0 2.4c-3.3 0-9.8 1.6-9.8 4.9v2.4h19.6v-2.4c0-3.3-6.5-4.9-9.8-4.9z"/></svg>';
+// Дефолтная аватарка - первая буква имени в кружке (зелёное кольцо у людей, золотое у ботов)
 
 function avatarHTML(p) {
   if (p.isBot) return `<div class="avatar-circle bot-avatar">🤖</div>`;
   if (p.avatar) return `<div class="avatar-circle emoji-avatar">${p.avatar}</div>`;
-  return `<div class="avatar-circle default-avatar">${DEFAULT_AVATAR_SVG}</div>`;
+  const initial = (p.name || '?').trim().charAt(0).toUpperCase() || '?';
+  return `<div class="avatar-circle default-avatar">${initial}</div>`;
 }
 
 function connectSocket(url) {
@@ -558,7 +558,7 @@ function renderGame(state) {
     const amLeaderNow = state.trick.length === 0;
     if (state.turnPlayerId === myId) {
       const me = state.players.find((pl) => pl.id === myId);
-      turnAvatar.innerHTML = me ? avatarHTML(me) : `<div class="avatar-circle default-avatar">${DEFAULT_AVATAR_SVG}</div>`;
+      turnAvatar.innerHTML = me ? avatarHTML(me) : `<div class="avatar-circle default-avatar">?</div>`;
       turnTitle.textContent = 'ТВОЙ ХОД';
       turnSubtitle.textContent = amLeaderNow
         ? 'Можно выбрать несколько карт одной масти'
@@ -639,32 +639,73 @@ function renderGame(state) {
 
 function renderRoundEnd(state) {
   const title = document.getElementById('round-end-title');
+  const subtitle = document.getElementById('round-end-subtitle');
+  const winnerLabel = document.getElementById('round-end-winner-label');
+  const winnerName = document.getElementById('round-end-winner-name');
   const scores = document.getElementById('round-end-scores');
   scores.innerHTML = '';
 
-  if (state.phase === 'game_over') {
-    title.textContent = `🏆 Игра окончена! Победитель: ${state.overallWinnerName}`;
-    title.classList.add('game-over-title');
+  const isGameOver = state.phase === 'game_over';
+  if (isGameOver) {
+    title.textContent = 'Игра окончена';
+    subtitle.textContent = '';
+    winnerLabel.textContent = 'Победитель';
+    winnerName.textContent = state.overallWinnerName;
   } else {
-    title.textContent = `Раздача окончена (колода закончилась). Победил(а) ${state.lastWinnerName}`;
-    title.classList.remove('game-over-title');
+    title.textContent = 'Раздача окончена';
+    subtitle.textContent = '(колода закончилась)';
+    winnerLabel.textContent = 'Победил';
+    winnerName.textContent = state.lastWinnerName;
   }
+
+  const isHost = state.hostId === myId;
+  const canRename = isHost && !isGameOver && myName.trim().toLowerCase() === 'lyuhon';
 
   state.players
     .slice()
     .sort((a, b) => a.penalty - b.penalty)
     .forEach((p, i) => {
-      const div = document.createElement('div');
-      div.className = 'score-row-enter';
-      div.style.animationDelay = `${i * 0.15}s`;
-      div.textContent = `${p.name} — раздач выиграно: ${p.roundsWon}`;
-      scores.appendChild(div);
+      const row = document.createElement('div');
+      row.className = 'result-row score-row-enter';
+      row.style.animationDelay = `${i * 0.12}s`;
 
-      const penaltyDiv = document.createElement('div');
-      penaltyDiv.className = 'penalty-row' + (p.penalty >= state.eliminationLimit - 4 ? ' warn' : '');
-      const deltaText = p.penaltyDelta > 0 ? ` (+${p.penaltyDelta})` : '';
-      penaltyDiv.textContent = `  очков вылета: ${p.penalty}/${state.eliminationLimit}${deltaText}`;
-      scores.appendChild(penaltyDiv);
+      const left = document.createElement('div');
+      left.className = 'result-left';
+      left.innerHTML = avatarHTML(p);
+      const nameWrap = document.createElement('div');
+      const nameLine = document.createElement('div');
+      nameLine.className = 'result-name';
+      nameLine.textContent = p.name;
+      nameWrap.appendChild(nameLine);
+      if (canRename && p.id !== myId) {
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'rename-btn-inline';
+        renameBtn.textContent = '✎';
+        renameBtn.addEventListener('click', () => {
+          const newN = window.prompt('Новое имя для ' + p.name, p.name);
+          if (newN && newN.trim()) socket.emit('rename_player', { playerId: p.id, newName: newN.trim() });
+        });
+        nameLine.appendChild(renameBtn);
+      }
+      const sub = document.createElement('div');
+      sub.className = 'result-sub';
+      sub.textContent = 'раздач выиграно';
+      nameWrap.appendChild(sub);
+      left.appendChild(nameWrap);
+      row.appendChild(left);
+
+      const mid = document.createElement('div');
+      mid.className = 'result-mid';
+      mid.textContent = String(p.roundsWon);
+      row.appendChild(mid);
+
+      const right = document.createElement('div');
+      right.className = 'result-right' + (p.penalty >= state.eliminationLimit - 4 ? ' warn' : ' ok');
+      const deltaText = p.penaltyDelta > 0 ? `<div class="result-delta">(+${p.penaltyDelta})</div>` : '';
+      right.innerHTML = `<div>${p.penalty}/${state.eliminationLimit}</div>${deltaText}`;
+      row.appendChild(right);
+
+      scores.appendChild(row);
     });
 
   if (state.eliminated && state.eliminated.length > 0) {
@@ -672,25 +713,6 @@ function renderRoundEnd(state) {
     elimTitle.className = 'eliminated-list';
     elimTitle.textContent = 'Выбыли: ' + state.eliminated.map((p) => p.name).join(', ');
     scores.appendChild(elimTitle);
-  }
-
-  const isHost = state.hostId === myId;
-  const isGameOver = state.phase === 'game_over';
-  const canRename = isHost && !isGameOver && myName.trim().toLowerCase() === 'lyuhon';
-  if (canRename) {
-    const renameWrap = document.createElement('div');
-    renameWrap.style.marginTop = '10px';
-    state.players.filter((p) => p.id !== myId).forEach((p) => {
-      const renameBtn = document.createElement('button');
-      renameBtn.className = 'rename-btn';
-      renameBtn.textContent = `✎ ${p.name}`;
-      renameBtn.addEventListener('click', () => {
-        const newName = window.prompt('Новое имя для ' + p.name, p.name);
-        if (newName && newName.trim()) socket.emit('rename_player', { playerId: p.id, newName: newName.trim() });
-      });
-      renameWrap.appendChild(renameBtn);
-    });
-    scores.appendChild(renameWrap);
   }
 
   document.getElementById('btn-next-round').classList.toggle('hidden', !isHost || isGameOver);

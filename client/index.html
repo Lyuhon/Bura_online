@@ -123,7 +123,6 @@
       <div class="score-row" id="scoreboard"></div>
 
       <button class="history-row" id="history-toggle" type="button">
-        <span class="history-icon">🕐</span>
         <span class="history-label">История ходов</span>
         <span class="chevron" id="history-chevron">›</span>
       </button>
@@ -148,10 +147,19 @@
 </div>
 
 <div id="screen-round-end" class="screen hidden">
-  <div class="card-panel center">
+  <div class="card-panel center round-end-panel">
+    <div class="round-end-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#7fd9a8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
     <h2 id="round-end-title"></h2>
+    <p class="round-end-subtitle" id="round-end-subtitle"></p>
+    <p class="round-end-winner-label" id="round-end-winner-label"></p>
+    <p class="round-end-winner-name" id="round-end-winner-name"></p>
+    <div class="round-end-divider"><span>◇</span></div>
     <div id="round-end-scores"></div>
-    <button id="btn-next-round" class="btn btn-primary hidden">Следующая раздача</button>
+    <button id="btn-next-round" class="btn btn-primary hidden">Следующая раздача →</button>
     <button id="btn-return-lobby" class="btn hidden">🏠 В лобби</button>
     <p class="hint" id="wait-host-hint">Ждём, пока хост начнёт следующую раздачу…</p>
   </div>

@@ -45,6 +45,7 @@ body {
   padding: 20px 14px;
   padding-bottom: max(20px, env(safe-area-inset-bottom));
   overflow-y: auto;
+  overflow-x: hidden;
   background:
     radial-gradient(ellipse 120% 80% at 50% -10%, var(--felt-glow) 0%, transparent 55%),
     repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 14px),
@@ -173,6 +174,7 @@ input::placeholder { color: #6d7d73; }
   display: flex;
   flex-direction: column;
   padding: 0 4px;
+  overflow-x: hidden;
 }
 
 .topbar {
@@ -210,6 +212,7 @@ input::placeholder { color: #6d7d73; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -242,8 +245,8 @@ input::placeholder { color: #6d7d73; }
   font-size: 1.5rem;
   overflow: hidden;
 }
-.avatar-circle.default-avatar { background: #2c5347; color: #bfe0d2; }
-.avatar-circle.bot-avatar { background: #35424a; }
+.avatar-circle.default-avatar { background: rgba(0,0,0,0.3); border: 2px solid #4caf7d; color: #7fd9a8; font-weight: 700; font-size: 1.15rem; font-family: var(--font-body); }
+.avatar-circle.bot-avatar { background: rgba(0,0,0,0.3); border: 2px solid var(--brass-bright); }
 .avatar-circle.emoji-avatar { background: rgba(184,147,74,0.18); border: 1px solid rgba(184,147,74,0.35); }
 
 .avatar-picker { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -404,11 +407,13 @@ input::placeholder { color: #6d7d73; }
 .trick-group.currently-winning { transform: translateY(-8px); }
 .trick-group.currently-winning .trick-group-label { color: var(--brass-bright); font-weight: bold; }
 .trick-group.currently-winning .trick-group-cards .card {
-  box-shadow: 0 0 0 2px var(--brass-bright), 0 0 12px rgba(217,181,106,0.6);
+  box-shadow: 0 0 0 1px var(--brass-bright), 0 0 8px rgba(217,181,106,0.5);
+}
+.trick-group.winner-group {
+  transform: translateY(-8px);
 }
 .card.winner-card {
-  box-shadow: 0 0 0 3px var(--brass-bright), 0 0 14px rgba(217,181,106,0.8);
-  transform: translateY(-4px);
+  box-shadow: 0 0 0 1.5px var(--brass-bright), 0 0 10px rgba(217,181,106,0.6);
 }
 /* Карты улетают к тому, кто забрал взятку */
 .card.flying {
@@ -566,4 +571,38 @@ input::placeholder { color: #6d7d73; }
   color: #fff;
   border: none;
   font-weight: 700;
+}
+
+/* --- экран завершения раздачи/игры --- */
+.round-end-panel { max-width: 420px; }
+.round-end-icon {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: 2px solid #4caf7d;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 12px;
+}
+.round-end-panel h2 { margin: 0; font-size: 1.3rem; color: var(--ivory); }
+.round-end-subtitle { margin: 2px 0 10px; color: var(--ivory-dim); font-size: 0.85rem; }
+.round-end-winner-label { margin: 0; color: var(--ivory-dim); font-size: 0.85rem; }
+.round-end-winner-name { margin: 2px 0 10px; color: #7fd9a8; font-size: 1.4rem; font-weight: 700; }
+.round-end-divider { text-align: center; color: var(--brass-dim); margin-bottom: 8px; font-size: 0.9rem; }
+
+.result-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid rgba(184,147,74,0.15);
+}
+.result-row:last-child { border-bottom: none; }
+.result-left { display: flex; align-items: center; gap: 10px; flex: 1; text-align: left; min-width: 0; }
+.result-name { font-weight: 700; color: var(--ivory); font-size: 0.95rem; display: flex; align-items: center; gap: 4px; }
+.result-sub { font-size: 0.72rem; color: var(--ivory-dim); }
+.result-mid { font-size: 1.2rem; font-weight: 700; color: var(--ivory); min-width: 30px; text-align: center; }
+.result-right { text-align: right; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 700; min-width: 54px; }
+.result-right.ok { color: #7fd9a8; }
+.result-right.warn { color: #ff9a8a; }
+.result-delta { font-size: 0.72rem; opacity: 0.85; }
+.rename-btn-inline {
+  background: transparent; border: none; color: var(--brass-dim);
+  font-size: 0.8rem; cursor: pointer; padding: 0;
 }

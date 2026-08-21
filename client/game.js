@@ -244,9 +244,7 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo 
   clearTimeout(trickBannerTimer);
   trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 2500);
 
-  // Двухэтапная анимация: 1) карты со стола сходятся в единую стопку
-  // (каждая следующая чуть левее и выше предыдущей) 2) вся стопка "уезжает"
-  // единым целым в сторону того, кто забрал взятку.
+  // Разлёт карт к тому, кто забрал взятку (с паузой, чтобы успеть разглядеть расклад)
   requestAnimationFrame(() => {
     const cardEls = Array.from(document.querySelectorAll('#trick-area .card'));
     if (cardEls.length === 0) return;
@@ -260,23 +258,6 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo 
         .find((el) => el.querySelector('.name') && el.querySelector('.name').textContent.startsWith(winnerName));
     }
 
-    // Этап 1 (через 900мс, дав время разглядеть расклад): собираем карты в стопку в центре стола
-    setTimeout(() => {
-      const areaRect = trickArea.getBoundingClientRect();
-      const centerX = areaRect.left + areaRect.width / 2;
-      const centerY = areaRect.top + areaRect.height / 2;
-      cardEls.forEach((el, i) => {
-        const o = originRects[i];
-        const dx = centerX - (o.left + o.width / 2) - i * 9; // каждая следующая чуть левее
-        const dy = centerY - (o.top + o.height / 2) - i * 2;
-        el.style.zIndex = String(i + 1);
-        el.classList.add('stacking');
-        el.style.setProperty('--stack-x', `${dx}px`);
-        el.style.setProperty('--stack-y', `${dy}px`);
-      });
-    }, 900);
-
-    // Этап 2 (ещё через 500мс, дав разглядеть готовую стопку): вся стопка едет к победителю
     setTimeout(() => {
       if (!targetEl) return;
       const targetRect = targetEl.getBoundingClientRect();
@@ -286,12 +267,11 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo 
         const o = originRects[i];
         const dx = targetX - (o.left + o.width / 2);
         const dy = targetY - (o.top + o.height / 2);
-        el.classList.remove('stacking');
         el.classList.add('flying');
         el.style.setProperty('--fly-x', `${dx}px`);
         el.style.setProperty('--fly-y', `${dy}px`);
       });
-    }, 1400);
+    }, 1300);
   });
 }
 

@@ -606,3 +606,5 @@ input::placeholder { color: #6d7d73; }
   background: transparent; border: none; color: var(--brass-dim);
   font-size: 0.8rem; cursor: pointer; padding: 0;
 }
+
+.round-end-panel .btn { width: 100%; }

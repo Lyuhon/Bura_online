@@ -653,7 +653,7 @@ function renderRoundEnd(state) {
     winnerName.textContent = state.overallWinnerName;
   } else {
     title.textContent = 'Раздача окончена';
-    subtitle.textContent = '(колода закончилась)';
+    subtitle.textContent = '';
     winnerLabel.textContent = 'Победил';
     winnerName.textContent = state.lastWinnerName;
   }

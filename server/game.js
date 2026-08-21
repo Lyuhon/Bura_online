@@ -7,6 +7,7 @@
 const SUITS = ['♠', '♥', '♦', '♣'];
 // В буре 10 сильнее короля/дамы/валета, слабее только туза
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'J', 'Q', 'K', '10', 'A'];
+const RANKS_36 = ['6', '7', '8', '9', 'J', 'Q', 'K', '10', 'A'];
 const POINTS = {
   '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0,
   '10': 10, 'J': 2, 'Q': 3, 'K': 4, 'A': 11,
@@ -15,9 +16,10 @@ const WIN_SCORE = 31; // мгновенная победа в раздаче п�
 const HAND_SIZE = 4; // карт в руке у каждого игрока
 const ELIMINATION_LIMIT = 12; // очков вылета для выбывания из игры
 
-function createDeck() {
+function createDeck(deckSize) {
+  const ranks = deckSize === 36 ? RANKS_36 : RANKS;
   const deck = [];
-  for (const s of SUITS) for (const r of RANKS) deck.push({ suit: s, rank: r });
+  for (const s of SUITS) for (const r of ranks) deck.push({ suit: s, rank: r });
   return deck;
 }
 
@@ -51,6 +53,7 @@ function createRoom(code, hostId, hostToken, hostName) {
     players: [newPlayer(hostId, hostToken, hostName)],
     eliminated: [],
     deck: [],
+    deckSize: 52,
     trumpSuit: null,
     trumpCard: null,
     trick: [],
@@ -61,6 +64,13 @@ function createRoom(code, hostId, hostToken, hostName) {
     dealerIndex: -1,
     cleanupTimer: null,
   };
+}
+
+function setDeckSize(room, size) {
+  if (room.phase !== 'lobby') return false;
+  if (size !== 36 && size !== 52) return false;
+  room.deckSize = size;
+  return true;
 }
 
 function addPlayer(room, id, token, name) {
@@ -138,7 +148,14 @@ function leaveGame(room, playerId) {
 }
 
 function startRound(room) {
-  room.deck = shuffle(createDeck());
+  room.deck = shuffle(createDeck(room.deckSize));
+  // Если полная колода (52) и играют втроём - убираем одну случайную карту ДО
+  // раздачи и до выбора козыря, чтобы колода делилась поровну (52 не делится
+  // на 3 без остатка). Так козырь не может случайно "исчезнуть" вместе с ней.
+  if (room.deckSize === 52 && room.players.length === 3) {
+    const idx = Math.floor(Math.random() * room.deck.length);
+    room.deck.splice(idx, 1);
+  }
   room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
   for (const p of room.players) {
     p.hand = [];
@@ -439,6 +456,7 @@ function publicStateFor(room, forPlayerId) {
     code: room.code,
     phase: room.phase,
     hostId: host ? host.id : null,
+    deckSize: room.deckSize,
     trumpSuit: room.trumpSuit,
     trumpCard: room.trumpCard,
     trick: room.trick,
@@ -489,6 +507,6 @@ function resetToLobby(room) {
 
 module.exports = {
   SUITS, RANKS, POINTS, WIN_SCORE, HAND_SIZE, ELIMINATION_LIMIT,
-  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, leaveGame, resetToLobby, startRound,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, leaveGame, resetToLobby, setDeckSize, startRound,
   isValidSubmission, playCards, finalizeTrick, chooseBotMove, currentHolderEntry, beatsCard, publicStateFor, cardId,
 };

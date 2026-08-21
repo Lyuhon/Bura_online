@@ -156,6 +156,8 @@ document.getElementById('btn-join').addEventListener('click', () => {
 
 document.getElementById('btn-start').addEventListener('click', () => socket.emit('start_game'));
 document.getElementById('btn-add-bot').addEventListener('click', () => socket.emit('add_bot'));
+document.getElementById('btn-deck-36').addEventListener('click', () => socket.emit('set_deck_size', { size: 36 }));
+document.getElementById('btn-deck-52').addEventListener('click', () => socket.emit('set_deck_size', { size: 52 }));
 document.getElementById('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
 document.getElementById('btn-return-lobby').addEventListener('click', () => socket.emit('return_to_lobby'));
 
@@ -240,9 +242,16 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo 
   banner.textContent = `🏆 ${winnerName} забирает всю взятку (+${trickPoints} очк.)`;
   banner.classList.add('show');
   clearTimeout(trickBannerTimer);
-  trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 1700);
+  trickBannerTimer = setTimeout(() => banner.classList.remove('show'), 2500);
 
+  // Двухэтапная анимация: 1) карты со стола сходятся в единую стопку
+  // (каждая следующая чуть левее и выше предыдущей) 2) вся стопка "уезжает"
+  // единым целым в сторону того, кто забрал взятку.
   requestAnimationFrame(() => {
+    const cardEls = Array.from(document.querySelectorAll('#trick-area .card'));
+    if (cardEls.length === 0) return;
+    const originRects = cardEls.map((el) => el.getBoundingClientRect());
+
     let targetEl = null;
     if (winnerId === myId) {
       targetEl = document.getElementById('my-hand');
@@ -250,21 +259,39 @@ function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo 
       targetEl = Array.from(document.querySelectorAll('.opponent'))
         .find((el) => el.querySelector('.name') && el.querySelector('.name').textContent.startsWith(winnerName));
     }
-    if (!targetEl) return;
-    const targetRect = targetEl.getBoundingClientRect();
-    const targetX = targetRect.left + targetRect.width / 2;
-    const targetY = targetRect.top + targetRect.height / 2;
 
+    // Этап 1 (через 900мс, дав время разглядеть расклад): собираем карты в стопку в центре стола
     setTimeout(() => {
-      document.querySelectorAll('#trick-area .card').forEach((cardNode) => {
-        const r = cardNode.getBoundingClientRect();
-        const dx = targetX - (r.left + r.width / 2);
-        const dy = targetY - (r.top + r.height / 2);
-        cardNode.classList.add('flying');
-        cardNode.style.setProperty('--fly-x', `${dx}px`);
-        cardNode.style.setProperty('--fly-y', `${dy}px`);
+      const areaRect = trickArea.getBoundingClientRect();
+      const centerX = areaRect.left + areaRect.width / 2;
+      const centerY = areaRect.top + areaRect.height / 2;
+      cardEls.forEach((el, i) => {
+        const o = originRects[i];
+        const dx = centerX - (o.left + o.width / 2) - i * 9; // каждая следующая чуть левее
+        const dy = centerY - (o.top + o.height / 2) - i * 2;
+        el.style.zIndex = String(i + 1);
+        el.classList.add('stacking');
+        el.style.setProperty('--stack-x', `${dx}px`);
+        el.style.setProperty('--stack-y', `${dy}px`);
       });
-    }, 500);
+    }, 900);
+
+    // Этап 2 (ещё через 500мс, дав разглядеть готовую стопку): вся стопка едет к победителю
+    setTimeout(() => {
+      if (!targetEl) return;
+      const targetRect = targetEl.getBoundingClientRect();
+      const targetX = targetRect.left + targetRect.width / 2;
+      const targetY = targetRect.top + targetRect.height / 2;
+      cardEls.forEach((el, i) => {
+        const o = originRects[i];
+        const dx = targetX - (o.left + o.width / 2);
+        const dy = targetY - (o.top + o.height / 2);
+        el.classList.remove('stacking');
+        el.classList.add('flying');
+        el.style.setProperty('--fly-x', `${dx}px`);
+        el.style.setProperty('--fly-y', `${dy}px`);
+      });
+    }, 1400);
   });
 }
 
@@ -314,6 +341,16 @@ function renderLobby(state) {
 
   const addBotBtn = document.getElementById('btn-add-bot');
   addBotBtn.classList.toggle('hidden', !isHost || state.players.length >= 4);
+
+  const deck36Btn = document.getElementById('btn-deck-36');
+  const deck52Btn = document.getElementById('btn-deck-52');
+  const deckReadonly = document.getElementById('deck-size-readonly');
+  deck36Btn.classList.toggle('active', state.deckSize === 36);
+  deck52Btn.classList.toggle('active', state.deckSize === 52);
+  deck36Btn.classList.toggle('hidden', !isHost);
+  deck52Btn.classList.toggle('hidden', !isHost);
+  deckReadonly.classList.toggle('hidden', isHost);
+  deckReadonly.textContent = `Выбрано: ${state.deckSize} карт`;
 }
 
 // Обновляет ТОЛЬКО состояние выделения/номерков на уже существующих карточных

@@ -3,7 +3,7 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const {
-  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, leaveGame, resetToLobby, startRound,
+  createRoom, addPlayer, addBot, findPlayerByToken, kickPlayer, renamePlayer, leaveGame, resetToLobby, setDeckSize, startRound,
   isValidSubmission, playCards, finalizeTrick, chooseBotMove, publicStateFor,
 } = require('./game');
 
@@ -25,7 +25,7 @@ const rooms = {};
 const tokenToRoom = {};
 
 const CLEANUP_DELAY_MS = 10 * 60 * 1000;
-const TRICK_PAUSE_MS = 1400;
+const TRICK_PAUSE_MS = 2600; // подольше, чтобы успеть разглядеть карты + анимацию стопки
 const ROUND_END_PAUSE_MS = 1800;
 const BOT_MIN_DELAY_MS = 700;
 const BOT_MAX_DELAY_MS = 1600;
@@ -141,6 +141,14 @@ io.on('connection', (socket) => {
     socket.data.roomCode = room.code;
     socket.data.token = token;
     broadcastRoom(room);
+  });
+
+  socket.on('set_deck_size', ({ size }) => {
+    const room = rooms[socket.data.roomCode];
+    if (!room) return;
+    const requester = findPlayerByToken(room, socket.data.token);
+    if (!requester || requester.token !== room.hostToken) return;
+    if (setDeckSize(room, size)) broadcastRoom(room);
   });
 
   socket.on('add_bot', () => {

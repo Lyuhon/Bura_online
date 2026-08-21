@@ -261,6 +261,15 @@ document.getElementById('menu-leave-btn').addEventListener('click', () => {
   });
 });
 
+document.getElementById('btn-leave-lobby').addEventListener('click', () => {
+  showConfirmSheet('Точно выйти из комнаты?', () => {
+    if (socket) socket.emit('leave_game');
+    localStorage.removeItem('bura_room_code');
+    if (socket) socket.disconnect();
+    showScreen('connect');
+  });
+});
+
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!lastState) return;
   const me = lastState.players.find((p) => p.id === myId);
@@ -389,7 +398,8 @@ function renderLobby(state) {
       const btnGroup = document.createElement('span');
       if (canRename) {
         const renameBtn = document.createElement('button');
-        renameBtn.className = 'rename-btn';
+        renameBtn.className = 'rename-icon-btn';
+        renameBtn.setAttribute('aria-label', 'Переименовать');
         renameBtn.textContent = '✎';
         renameBtn.addEventListener('click', () => {
           const newName = window.prompt('Новое имя для ' + p.name, p.name);

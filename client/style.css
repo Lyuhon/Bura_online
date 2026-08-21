@@ -608,3 +608,35 @@ input::placeholder { color: #6d7d73; }
 }
 
 .round-end-panel .btn { width: 100%; }
+
+.lobby-topbar {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+.lobby-topbar .brand { margin-top: 0; }
+.leave-circle-btn {
+  background: radial-gradient(circle at 35% 30%, #d1483c, #a8332b 70%);
+  border: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.25);
+}
+
+.rename-icon-btn {
+  background: rgba(184,147,74,0.12);
+  border: 1px solid rgba(184,147,74,0.5);
+  color: var(--brass-bright);
+  font-size: 0.85rem;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  padding: 0;
+}
+.rename-icon-btn:active { transform: scale(0.92); }

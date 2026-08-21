@@ -184,7 +184,21 @@ input::placeholder { color: #6d7d73; }
   flex-shrink: 0;
 }
 .trump { font-size: 1rem; display: flex; align-items: center; gap: 4px; }
-.deck-count, .room-tag { font-family: var(--font-mono); font-size: 0.78rem; }
+.trump-wrap { position: relative; display: inline-flex; }
+.deck-badge {
+  position: absolute;
+  top: -9px;
+  right: -18px;
+  background: linear-gradient(180deg, var(--brass-bright), var(--brass));
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  white-space: nowrap;
+}
 
 .table-scroll {
   flex: 1;
@@ -356,15 +370,20 @@ input::placeholder { color: #6d7d73; }
 .eliminated-list { font-size: 0.8rem; color: var(--ivory-dim); margin-top: 10px; opacity: 0.8; }
 .game-over-title { color: var(--brass-bright); }
 
-.leave-btn {
-  background: transparent;
-  border: 1px solid rgba(168,51,43,0.5);
-  color: #ff9a8a;
-  font-size: 0.72rem;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-family: var(--font-body);
+.leave-icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #d1483c, #a8332b 70%);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.25);
+  flex-shrink: 0;
+  cursor: pointer;
 }
+.leave-icon-btn:active { transform: scale(0.92); }
 
 .reconnect-banner {
   position: fixed;

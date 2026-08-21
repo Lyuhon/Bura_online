@@ -3,6 +3,7 @@ let myId = null;
 let myName = '';
 let lastState = null;
 let selectedCardIds = new Set(); // выбранные для сброса карты, порядок = порядок клика
+let justSubmitted = false; // true сразу после своего хода, до прихода настоящего обновления с сервера
 let trickBannerTimer = null;
 let lastHandKey = ''; // сигнатура последнего отрисованного набора карт руки (чтобы не пересоздавать DOM зря)
 
@@ -185,11 +186,20 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
   const cards = idsInClickOrder.map((id) => me.hand.find((c) => cardId(c) === id)).filter(Boolean);
   selectedCardIds.clear();
   socket.emit('play_card', { cards });
+
+  // Убираем сыгранные карты из руки СРАЗУ, не дожидаясь ответа сервера - если
+  // это был завершающий ход во взятке, сервер намеренно тянет с ответом ради
+  // анимации, и без этого карты "зависали" бы в руке ещё пару секунд
+  justSubmitted = true;
+  const playedIds = new Set(cards.map(cardId));
+  me.hand = me.hand.filter((c) => !playedIds.has(cardId(c)));
+  renderGame(lastState);
 });
 
 // --- обновление состояния ---
 function onRoomUpdate(state) {
   lastState = state;
+  justSubmitted = false;
   document.getElementById('connect-error').textContent = '';
   document.getElementById('btn-create').disabled = false;
   document.getElementById('btn-join').disabled = false;
@@ -340,7 +350,7 @@ function refreshHandSelectionUI(state) {
   if (!me || !me.hand) return;
   const amLeader = state.trick.length === 0;
   const required = amLeader ? null : state.requiredCount;
-  const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+  const myTurn = !justSubmitted && state.turnPlayerId === myId && state.phase === 'playing';
   const orderedSelectedIds = Array.from(selectedCardIds);
 
   document.querySelectorAll('#my-hand .card').forEach((node) => {
@@ -382,7 +392,7 @@ function onHandCardClick(id, card) {
   const state = lastState;
   if (!state) return;
   const me = state.players.find((p) => p.id === myId);
-  const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+  const myTurn = !justSubmitted && state.turnPlayerId === myId && state.phase === 'playing';
   if (!myTurn) return;
   const amLeader = state.trick.length === 0;
 
@@ -404,11 +414,10 @@ function onHandCardClick(id, card) {
 }
 
 function renderGame(state) {
-  document.getElementById('room-tag').textContent = `Комната ${state.code}`;
-  document.getElementById('deck-count').textContent = `В колоде: ${state.deckCount}`;
+  document.getElementById('deck-count').textContent = `🂠 ${state.deckCount}`;
 
   const trumpDiv = document.getElementById('trump-display');
-  trumpDiv.innerHTML = 'Козырь: ';
+  trumpDiv.innerHTML = '';
   if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { small: true }));
 
   const opp = document.getElementById('opponents');
@@ -476,7 +485,7 @@ function renderGame(state) {
   // (новая раздача/добор) - иначе анимация появления будет проигрываться зря на каждый клик
   const hand = document.getElementById('my-hand');
   const me = state.players.find((p) => p.id === myId);
-  const myTurn = state.turnPlayerId === myId && state.phase === 'playing';
+  const myTurn = !justSubmitted && state.turnPlayerId === myId && state.phase === 'playing';
 
   // Меня уже нет среди активных игроков этой партии (вылетел по очкам вылета) -
   // показываем баннер вместо попытки отрисовать несуществующую руку

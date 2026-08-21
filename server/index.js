@@ -108,10 +108,10 @@ function scheduleCleanup(room) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('create_room', ({ name, token }) => {
+  socket.on('create_room', ({ name, token, avatar }) => {
     if (!token) return;
     const code = genCode();
-    const room = createRoom(code, socket.id, token, name || 'Игрок');
+    const room = createRoom(code, socket.id, token, name || 'Игрок', avatar || null);
     rooms[code] = room;
     tokenToRoom[token] = code;
     socket.join(code);
@@ -120,7 +120,7 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on('join_room', ({ code, name, token }) => {
+  socket.on('join_room', ({ code, name, token, avatar }) => {
     if (!token) return;
     const room = rooms[(code || '').trim()];
     if (!room) {
@@ -131,7 +131,7 @@ io.on('connection', (socket) => {
       socket.emit('error_msg', 'Игра уже идёт');
       return;
     }
-    const ok = addPlayer(room, socket.id, token, name || 'Игрок');
+    const ok = addPlayer(room, socket.id, token, name || 'Игрок', avatar || null);
     if (!ok) {
       socket.emit('error_msg', 'Комната заполнена (максимум 4)');
       return;

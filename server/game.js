@@ -39,18 +39,18 @@ function cardId(c) {
   return c.rank + c.suit;
 }
 
-function newPlayer(id, token, name, isBot = false) {
+function newPlayer(id, token, name, isBot = false, avatar = null) {
   return {
-    id, token, name, hand: [], score: 0, roundsWon: 0,
+    id, token, name, avatar, hand: [], score: 0, roundsWon: 0,
     penalty: 0, penaltyDelta: 0, connected: true, isBot,
   };
 }
 
-function createRoom(code, hostId, hostToken, hostName) {
+function createRoom(code, hostId, hostToken, hostName, hostAvatar) {
   return {
     code,
     hostToken,
-    players: [newPlayer(hostId, hostToken, hostName)],
+    players: [newPlayer(hostId, hostToken, hostName, false, hostAvatar)],
     eliminated: [],
     deck: [],
     deckSize: 52,
@@ -73,9 +73,9 @@ function setDeckSize(room, size) {
   return true;
 }
 
-function addPlayer(room, id, token, name) {
+function addPlayer(room, id, token, name, avatar) {
   if (room.players.length >= 4) return false;
-  room.players.push(newPlayer(id, token, name));
+  room.players.push(newPlayer(id, token, name, false, avatar));
   return true;
 }
 
@@ -478,6 +478,7 @@ function publicStateFor(room, forPlayerId) {
       penaltyDelta: p.penaltyDelta,
       connected: p.connected,
       isBot: p.isBot || false,
+      avatar: p.avatar || null,
       handCount: p.hand.length,
       hand: p.id === forPlayerId ? p.hand : undefined,
     })),

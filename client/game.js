@@ -57,8 +57,30 @@ function cardEl(card, opts = {}) {
 // --- подключение ---
 const savedUrl = localStorage.getItem('bura_server_url') || (window.BURA_DEFAULT_SERVER || '');
 const savedName = localStorage.getItem('bura_name') || '';
+const savedAvatar = localStorage.getItem('bura_avatar') || '';
+let myAvatar = savedAvatar;
 document.getElementById('server-url').value = savedUrl;
 document.getElementById('player-name').value = savedName;
+
+// Выбор аватарки-эмодзи (по желанию) - если не выбрал, используется дефолтная иконка
+document.querySelectorAll('.avatar-opt').forEach((btn) => {
+  if (btn.dataset.emoji === savedAvatar) btn.classList.add('selected');
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.avatar-opt').forEach((b) => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    myAvatar = btn.dataset.emoji;
+    localStorage.setItem('bura_avatar', myAvatar);
+  });
+});
+
+// Дефолтная иконка (silhouette), когда аватар не выбран
+const DEFAULT_AVATAR_SVG = '<svg viewBox="0 0 24 24" width="60%" height="60%" fill="currentColor"><path d="M12 12c2.7 0 4.9-2.2 4.9-4.9S14.7 2.2 12 2.2 7.1 4.4 7.1 7.1 9.3 12 12 12zm0 2.4c-3.3 0-9.8 1.6-9.8 4.9v2.4h19.6v-2.4c0-3.3-6.5-4.9-9.8-4.9z"/></svg>';
+
+function avatarHTML(p) {
+  if (p.isBot) return `<div class="avatar-circle bot-avatar">🤖</div>`;
+  if (p.avatar) return `<div class="avatar-circle emoji-avatar">${p.avatar}</div>`;
+  return `<div class="avatar-circle default-avatar">${DEFAULT_AVATAR_SVG}</div>`;
+}
 
 function connectSocket(url) {
   localStorage.setItem('bura_server_url', url);
@@ -134,7 +156,7 @@ document.getElementById('btn-create').addEventListener('click', () => {
   joinBtn.disabled = true;
   document.getElementById('connect-error').textContent = 'Подключаемся…';
   socket = connectSocket(url);
-  socket.once('connect', () => socket.emit('create_room', { name: myName, token: myToken }));
+  socket.once('connect', () => socket.emit('create_room', { name: myName, token: myToken, avatar: myAvatar }));
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
@@ -153,7 +175,7 @@ document.getElementById('btn-join').addEventListener('click', () => {
   joinBtn.disabled = true;
   document.getElementById('connect-error').textContent = 'Подключаемся…';
   socket = connectSocket(url);
-  socket.once('connect', () => socket.emit('join_room', { code, name: myName, token: myToken }));
+  socket.once('connect', () => socket.emit('join_room', { code, name: myName, token: myToken, avatar: myAvatar }));
 });
 
 document.getElementById('btn-start').addEventListener('click', () => socket.emit('start_game'));
@@ -162,6 +184,14 @@ document.getElementById('btn-deck-36').addEventListener('click', () => socket.em
 document.getElementById('btn-deck-52').addEventListener('click', () => socket.emit('set_deck_size', { size: 52 }));
 document.getElementById('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
 document.getElementById('btn-return-lobby').addEventListener('click', () => socket.emit('return_to_lobby'));
+
+document.getElementById('history-toggle').addEventListener('click', () => {
+  const log = document.getElementById('log');
+  const chevron = document.getElementById('history-chevron');
+  const willShow = log.classList.contains('hidden');
+  log.classList.toggle('hidden', !willShow);
+  chevron.classList.toggle('open', willShow);
+});
 
 document.getElementById('btn-reconnect').addEventListener('click', () => {
   if (socket) {
@@ -203,7 +233,26 @@ function showConfirmSheet(message, onConfirm) {
   overlay.onclick = close;
 }
 
-document.getElementById('btn-leave-game').addEventListener('click', () => {
+// Простой toggle-sheet без подтверждения (для меню)
+function toggleMenuSheet(show) {
+  const overlay = document.getElementById('sheet-overlay-menu');
+  const sheet = document.getElementById('menu-sheet');
+  if (show) {
+    overlay.classList.remove('hidden');
+    sheet.classList.remove('hidden');
+    requestAnimationFrame(() => { overlay.classList.add('show'); sheet.classList.add('show'); });
+  } else {
+    overlay.classList.remove('show');
+    sheet.classList.remove('show');
+    setTimeout(() => { overlay.classList.add('hidden'); sheet.classList.add('hidden'); }, 300);
+  }
+}
+
+document.getElementById('btn-menu').addEventListener('click', () => toggleMenuSheet(true));
+document.getElementById('menu-close-btn').addEventListener('click', () => toggleMenuSheet(false));
+document.getElementById('sheet-overlay-menu').addEventListener('click', () => toggleMenuSheet(false));
+document.getElementById('menu-leave-btn').addEventListener('click', () => {
+  toggleMenuSheet(false);
   showConfirmSheet('Точно выйти из игры? Обратно вернуться будет нельзя.', () => {
     if (socket) socket.emit('leave_game');
     localStorage.removeItem('bura_room_code');
@@ -264,8 +313,9 @@ function onRoomUpdate(state) {
 // к победителю - и только потом сервер чистит стол
 function onTrickResult({ trick, winnerId, winnerName, trickPoints, winningCombo }) {
   const trickArea = document.getElementById('trick-area');
-  trickArea.innerHTML = '';
+  trickArea.querySelectorAll('.trick-group').forEach((n) => n.remove());
   const winningIds = new Set((winningCombo || []).map(cardId));
+  trickArea.classList.add('has-cards');
 
   trick.forEach((entry) => {
     const p = lastState ? lastState.players.find((pl) => pl.id === entry.playerId) : null;
@@ -454,22 +504,29 @@ function renderGame(state) {
   trumpDiv.innerHTML = '';
   if (state.trumpCard) trumpDiv.appendChild(cardEl(state.trumpCard, { tiny: true }));
 
+  const watermark = document.getElementById('trick-watermark');
+  if (watermark && state.trumpSuit) watermark.textContent = state.trumpSuit;
+
   const opp = document.getElementById('opponents');
   opp.innerHTML = '';
   state.players.filter((p) => p.id !== myId).forEach((p) => {
     const div = document.createElement('div');
     div.className = 'opponent' + (p.id === state.turnPlayerId ? ' active' : '');
     div.dataset.playerId = p.id;
-    div.innerHTML = `<div class="name">${p.isBot ? '🤖 ' : ''}${p.name}${!p.isBot && !p.connected ? ' 💤' : ''}</div>
-      <div class="meta">Очки: ${p.score} · побед: ${p.roundsWon}</div>
-      <div class="penalty-bar">Вылет: ${p.penalty}/${state.eliminationLimit}</div>
-      <div class="mini-cards">${'🂠'.repeat(p.handCount)}</div>`;
+    div.innerHTML = `${avatarHTML(p)}
+      <div class="opponent-info">
+        <div class="name">${p.name}${!p.isBot && !p.connected ? ' 💤' : ''}</div>
+        <div class="meta">Очки: ${p.score} · Побед: ${p.roundsWon}</div>
+        <div class="penalty-bar">Вылет: ${p.penalty}/${state.eliminationLimit}</div>
+      </div>`;
     opp.appendChild(div);
   });
 
+  const trickArea = document.getElementById('trick-area');
   if (state.phase === 'playing') {
-    const trickArea = document.getElementById('trick-area');
-    trickArea.innerHTML = '';
+    // очищаем всё, кроме водяного знака, и рисуем заново только если есть карты
+    trickArea.querySelectorAll('.trick-group').forEach((n) => n.remove());
+    trickArea.classList.toggle('has-cards', state.trick.length > 0);
     const showLeaderMark = state.trick.length > 1; // при одной комбинации подсвечивать нечего - она одна
     state.trick.forEach((entry) => {
       const p = state.players.find((pl) => pl.id === entry.playerId);
@@ -488,22 +545,50 @@ function renderGame(state) {
     });
   }
 
-  const banner = document.getElementById('turn-banner');
+  // карточка "чей ход" с аватаркой
+  const turnCard = document.getElementById('turn-card');
+  const turnAvatar = document.getElementById('turn-avatar');
+  const turnTitle = document.getElementById('turn-title');
+  const turnSubtitle = document.getElementById('turn-subtitle');
   if (state.phase === 'resolving') {
-    banner.textContent = '';
-  } else if (state.turnPlayerId === myId) {
-    banner.textContent = '🎴 Твой ход! Можно выбрать несколько карт одной масти';
+    turnCard.classList.add('hidden');
   } else {
-    const p = state.players.find((pl) => pl.id === state.turnPlayerId);
-    banner.textContent = p ? `Ходит: ${p.name}` : '';
+    turnCard.classList.remove('hidden');
+    const turnPlayer = state.players.find((pl) => pl.id === state.turnPlayerId);
+    const amLeaderNow = state.trick.length === 0;
+    if (state.turnPlayerId === myId) {
+      const me = state.players.find((pl) => pl.id === myId);
+      turnAvatar.innerHTML = me ? avatarHTML(me) : `<div class="avatar-circle default-avatar">${DEFAULT_AVATAR_SVG}</div>`;
+      turnTitle.textContent = 'ТВОЙ ХОД';
+      turnSubtitle.textContent = amLeaderNow
+        ? 'Можно выбрать несколько карт одной масти'
+        : `Нужно ответить ровно ${state.requiredCount} карт${state.requiredCount === 1 ? 'ой' : 'ами'}`;
+    } else if (turnPlayer) {
+      turnAvatar.innerHTML = avatarHTML(turnPlayer);
+      turnTitle.textContent = `Ходит: ${turnPlayer.name}`;
+      turnSubtitle.textContent = amLeaderNow ? 'Выбирает, с чего зайти' : 'Обдумывает ответ';
+    }
   }
 
+  // строка счёта в одну линию: я + остальные
   const board = document.getElementById('scoreboard');
   board.innerHTML = '';
-  state.players.forEach((p) => {
-    const div = document.createElement('div');
-    div.textContent = `${p.name}: ${p.score}`;
-    board.appendChild(div);
+  const myPlayer = state.players.find((p) => p.id === myId);
+  if (myPlayer) {
+    const meName = document.createElement('div');
+    meName.className = 'score-cell score-cell-me';
+    meName.textContent = myPlayer.name;
+    board.appendChild(meName);
+    const meScore = document.createElement('div');
+    meScore.className = 'score-cell';
+    meScore.textContent = `Очки: ${myPlayer.score}`;
+    board.appendChild(meScore);
+  }
+  state.players.filter((p) => p.id !== myId).forEach((p) => {
+    const cell = document.createElement('div');
+    cell.className = 'score-cell';
+    cell.textContent = `${p.name}: ${p.score}`;
+    board.appendChild(cell);
   });
 
   const log = document.getElementById('log');
